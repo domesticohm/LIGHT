@@ -69,7 +69,7 @@
       <div class="spacer"></div>
       <a class="btn" href="/">2D Studio</a>
       <button class="btn" id="btnOpen">Open Photo…</button>
-      <button class="btn" id="btnModel">Add 3D Model…</button>
+      <button class="btn" id="btnModel">Add Reference Model…</button>
       <button class="btn" id="btnFront">Front View</button>
       <button class="btn primary" id="btnSave">Save PNG</button>
       <input type="file" id="file" accept="image/*" style="display:none"/>
@@ -144,16 +144,23 @@
     </div>
 
     <div class="section" id="secModel">
-      <div class="head"><span class="ttl">3D Model</span><span class="chev">▾</span></div>
+      <div class="head"><span class="ttl">Reference 3D Model → Depth</span><span class="chev">▾</span></div>
       <div class="body">
-        <div class="toprow">
+        <div class="small">Upload a 3D model of the <b>same object</b> as the photo. Align it over the photo (it shows as a ghost overlay), then <b>Bake Depth</b>. The model is used <b>only</b> to capture accurate geometry — it never appears in the preview or saved output.</div>
+        <div class="toprow" style="margin-top:8px">
           <button class="mini" id="mMove">Move</button>
           <button class="mini" id="mRot">Rotate</button>
           <button class="mini" id="mScale">Scale</button>
-          <button class="mini" id="mDel">Remove</button>
         </div>
         <div class="row"><label>Model scale <span class="val" id="mScaleV">1.00</span></label><input type="range" id="mScaleR" min="0.05" max="5" step="0.01" value="1.0"></div>
-        <div class="small">Add a .glb / .gltf / .obj model. It casts and receives real shadows with the photo. Use the gizmo to place it in the scene.</div>
+        <div class="row"><label>Ghost opacity <span class="val" id="mOpV">0.55</span></label><input type="range" id="mOp" min="0.1" max="1" step="0.01" value="0.55"></div>
+        <button class="btn primary" id="bakeDepth" style="width:100%;margin-top:4px">⬇ Bake Depth from Model</button>
+        <div class="toprow" style="margin-top:8px">
+          <button class="mini" id="mShow">Show / hide ghost</button>
+          <button class="mini" id="mMidas">Re-estimate (MiDaS)</button>
+          <button class="mini" id="mDel">Remove</button>
+        </div>
+        <div class="small" id="depthSrc" style="margin-top:8px">Depth source: — (open a photo)</div>
       </div>
     </div>
 
@@ -445,13 +452,15 @@ function applyPreset(name){
 
 // ---------- photo load + depth ----------
 const hud=$('hud');
+let currentPhotoFile=null, lastPhotoImg=null;
 function loadPhoto(file){
   const img=new Image();
   img.onload=async()=>{
+    currentPhotoFile=file; lastPhotoImg=img;
     planeH=2; planeW=2*(img.naturalWidth/img.naturalHeight);
     photoTex=new THREE.Texture(img); photoTex.colorSpace=THREE.SRGBColorSpace;
     photoTex.anisotropy=renderer.capabilities.getMaxAnisotropy(); photoTex.needsUpdate=true;
-    depthTex=null;
+    depthTex=null; normalTex=null;
     makePlane(); frontView(); applyRelief();
     $('drop').classList.add('hidden');
     hud.textContent='Estimating depth…';
@@ -465,10 +474,11 @@ async function fetchDepth(file,img){
     const r=await fetch('/api/depth',{method:'POST',body:fd});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const blob=await r.blob();
-    const di=new Image(); di.onload=()=>{ setDepth(di); hud.textContent='Depth: MiDaS (GPU) · '+img.naturalWidth+'×'+img.naturalHeight; };
+    const di=new Image(); di.onload=()=>{ setDepth(di); hud.textContent='Depth: MiDaS (GPU) · '+img.naturalWidth+'×'+img.naturalHeight; $('depthSrc').textContent='Depth source: MiDaS (estimated) — add a reference model for accurate geometry'; };
     di.src=URL.createObjectURL(blob);
   }catch(e){
     hud.textContent='Backend depth unavailable — using luminance fallback';
+    $('depthSrc').textContent='Depth source: luminance fallback';
     setDepth(luminanceDepth(img));
   }
 }
@@ -491,13 +501,22 @@ function luminanceDepth(img){
   return c;
 }
 
-// ---------- 3D model ----------
-let model=null;
+// ---------- reference 3D model (depth source only — never shown in output) ----------
+let model=null, alignMode=false;
 const tcontrol=new TransformControls(camera,canvas);
 tcontrol.addEventListener('dragging-changed',e=>orbit.enabled=!e.value);
 const tcHelper=tcontrol.getHelper?tcontrol.getHelper():tcontrol;
 scene.add(tcHelper);
-function clearModel(){ if(model){tcontrol.detach(); scene.remove(model); model=null;} }
+function setActiveMode(id){['mMove','mRot','mScale'].forEach(m=>$(m)&&$(m).classList.toggle('active',m===id));}
+function isModelChild(n){ let p=n; while(p){ if(p===model)return true; p=p.parent; } return false; }
+function setRefMaterial(m){
+  m.traverse(n=>{ if(n.isMesh){
+    n.userData.refMat=new THREE.MeshStandardMaterial({color:0x66ccff,roughness:0.55,metalness:0,
+      transparent:true,opacity:parseFloat($('mOp').value),depthWrite:false,depthTest:false,side:THREE.DoubleSide});
+    n.material=n.userData.refMat; n.castShadow=false; n.receiveShadow=false;
+  }});
+}
+function clearModel(){ if(model){tcontrol.detach(); scene.remove(model); model=null; alignMode=false; setActiveMode(null);} }
 function addModel(file){
   const url=URL.createObjectURL(file); const ext=file.name.split('.').pop().toLowerCase();
   const onLoad=obj=>{
@@ -505,15 +524,14 @@ function addModel(file){
     model=obj.scene||obj;
     const box=new THREE.Box3().setFromObject(model);
     const size=box.getSize(new THREE.Vector3()), center=box.getCenter(new THREE.Vector3());
-    const s=1.4/Math.max(size.x,size.y,size.z||1);
-    model.scale.setScalar(s);
-    model.userData.baseScale=s;
-    model.position.sub(center.multiplyScalar(s));
-    model.position.z+=0.4;
-    model.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;}});
-    scene.add(model); tcontrol.attach(model); tcontrol.setMode('translate');
+    const s=1.7/Math.max(size.x,size.y,size.z||1);
+    model.scale.setScalar(s); model.userData.baseScale=s;
+    model.position.sub(center.multiplyScalar(s));   // center on the photo plane (z=0)
+    setRefMaterial(model);
+    scene.add(model); tcontrol.attach(model); tcontrol.setMode('rotate'); setActiveMode('mRot');
     $('mScaleR').value=1; $('mScaleV').textContent='1.00';
-    hud.textContent='Model added — use Move/Rotate/Scale to place it';
+    alignMode=true; if(planeMat) planeMat.displacementScale=0;   // flat photo while aligning
+    hud.textContent='Align the ghost to the object in the photo, then ⬇ Bake Depth';
   };
   if(ext==='obj'){ new OBJLoader().load(url,onLoad,undefined,err=>alert('OBJ load failed: '+err)); }
   else { new GLTFLoader().load(url,onLoad,undefined,err=>alert('Model load failed: '+err)); }
@@ -521,9 +539,64 @@ function addModel(file){
 $('mMove').onclick=()=>{if(model)tcontrol.setMode('translate');setActiveMode('mMove');};
 $('mRot').onclick=()=>{if(model)tcontrol.setMode('rotate');setActiveMode('mRot');};
 $('mScale').onclick=()=>{if(model)tcontrol.setMode('scale');setActiveMode('mScale');};
-$('mDel').onclick=()=>{clearModel();setActiveMode(null);};
-function setActiveMode(id){['mMove','mRot','mScale'].forEach(m=>$(m).classList.toggle('active',m===id));}
+$('mDel').onclick=()=>clearModel();
+$('mShow').onclick=()=>{if(model){const v=!(model.visible);model.visible=v;tcontrol.enabled=v;}};
 $('mScaleR').addEventListener('input',()=>{const v=parseFloat($('mScaleR').value);$('mScaleV').textContent=v.toFixed(2);if(model)model.scale.setScalar(v*(model.userData.baseScale||1));});
+$('mOp').addEventListener('input',()=>{const v=parseFloat($('mOp').value);$('mOpV').textContent=v.toFixed(2);if(model)model.traverse(n=>{if(n.isMesh&&n.userData.refMat)n.userData.refMat.opacity=v;});});
+
+// ---------- bake depth from the reference model ----------
+const bakeDepthMat=new THREE.ShaderMaterial({
+  uniforms:{uNear:{value:0},uFar:{value:1}},
+  vertexShader:`varying float vZ; void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); vZ=-mv.z; gl_Position=projectionMatrix*mv; }`,
+  fragmentShader:`varying float vZ; uniform float uNear,uFar; void main(){ float d=clamp((uFar - vZ)/(uFar-uNear),0.0,1.0); gl_FragColor=vec4(vec3(d),1.0); }`
+});
+$('bakeDepth').onclick=()=>{
+  if(!model){ alert('Add a reference model first (Add Reference Model…).'); return; }
+  // a camera that frames the photo plane EXACTLY (same fov, front, plane aspect)
+  const fovV=2*Math.atan(24/(2*parseFloat($('foc').value)))*180/Math.PI;
+  const bcam=new THREE.PerspectiveCamera(fovV, planeW/planeH, 0.01, 500);
+  const dist=(planeH/2)/Math.tan(fovV*Math.PI/360);
+  bcam.position.set(0,0,dist); bcam.lookAt(0,0,0); bcam.updateMatrixWorld();
+  // normalize by the model's view-space depth range
+  const box=new THREE.Box3().setFromObject(model);
+  let zmin=Infinity,zmax=-Infinity;
+  [[box.min.x,box.min.y,box.min.z],[box.min.x,box.min.y,box.max.z],[box.min.x,box.max.y,box.min.z],[box.min.x,box.max.y,box.max.z],
+   [box.max.x,box.min.y,box.min.z],[box.max.x,box.min.y,box.max.z],[box.max.x,box.max.y,box.min.z],[box.max.x,box.max.y,box.max.z]]
+   .forEach(c=>{const v=new THREE.Vector3(c[0],c[1],c[2]).applyMatrix4(bcam.matrixWorldInverse);const z=-v.z;if(z<zmin)zmin=z;if(z>zmax)zmax=z;});
+  if(!isFinite(zmin)||zmax<=zmin){zmin=dist-1;zmax=dist+1;}
+  bakeDepthMat.uniforms.uNear.value=zmin; bakeDepthMat.uniforms.uFar.value=zmax;
+  // render ONLY the model with the depth shader into an offscreen target
+  const W=1024,H=Math.max(2,Math.round(1024*planeH/planeW));
+  const rt=new THREE.WebGLRenderTarget(W,H,{depthBuffer:true});
+  const hidden=[]; scene.traverse(n=>{ if(n.isMesh && !isModelChild(n)){ hidden.push([n,n.visible]); n.visible=false; } });
+  const wasVis=model.visible; model.visible=true;
+  model.traverse(n=>{ if(n.isMesh){ n.userData._m=n.material; n.material=bakeDepthMat; } });
+  tcHelper.visible=false;
+  const prevBg=scene.background; scene.background=null;
+  const prevTarget=renderer.getRenderTarget();
+  const prevClear=renderer.getClearColor(new THREE.Color()), prevAlpha=renderer.getClearAlpha();
+  renderer.setRenderTarget(rt); renderer.setClearColor(0x000000,1); renderer.clear();
+  renderer.render(scene,bcam);
+  const buf=new Uint8Array(W*H*4); renderer.readRenderTargetPixels(rt,0,0,W,H,buf);
+  // restore everything
+  renderer.setRenderTarget(prevTarget); renderer.setClearColor(prevClear,prevAlpha);
+  scene.background=prevBg; tcHelper.visible=true;
+  model.traverse(n=>{ if(n.isMesh){ n.material=n.userData._m; } });
+  hidden.forEach(([n,v])=>n.visible=v); model.visible=wasVis;
+  // RT pixels are bottom-up → write a top-down depth canvas
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const ctx=cv.getContext('2d');
+  const id=ctx.createImageData(W,H);
+  for(let y=0;y<H;y++){const sy=H-1-y;for(let x=0;x<W;x++){const s=(sy*W+x)*4,d=(y*W+x)*4;id.data[d]=buf[s];id.data[d+1]=buf[s+1];id.data[d+2]=buf[s+2];id.data[d+3]=255;}}
+  ctx.putImageData(id,0,0);
+  setDepth(cv);
+  // leave alignment: hide the reference, restore relief, show only the relit photo
+  alignMode=false; model.visible=false; tcontrol.detach();
+  $('relief').dispatchEvent(new Event('input'));
+  $('depthSrc').textContent='Depth source: baked from 3D model (accurate)';
+  hud.textContent='✅ Depth baked from model. Reference hidden — only the relit photo shows.';
+  rt.dispose();
+};
+$('mMidas').onclick=()=>{ if(!currentPhotoFile){alert('Open a photo first.');return;} if(model)model.visible=false; alignMode=false; hud.textContent='Re-estimating depth (MiDaS)…'; fetchDepth(currentPhotoFile,lastPhotoImg); };
 
 // ---------- toolbar ----------
 $('btnOpen').onclick=()=>$('file').click();

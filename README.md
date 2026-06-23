@@ -16,8 +16,11 @@ A local **virtual photo-lighting studio** with two engines:
    shadow-mapping light rig in **Three.js**. The **original photo pixels are never
    altered** — only the lighting changes, so composition and design are preserved exactly.
    Controls: light direction, shadow strength, soft-light (shadow softness), night/day,
-   ambient, color temperature, focal length, a **Film Noir** look, and you can **import a
-   3D model** (.glb/.gltf/.obj) that casts/receives shadows with the photo.
+   ambient, color temperature, focal length, and a **Film Noir** look.
+   You can also **upload a reference 3D model** (.glb/.gltf/.obj) of the *same object*:
+   align it over the photo and **Bake Depth** to capture accurate geometry from the model
+   instead of estimated depth. The reference model is used **only** for depth — it never
+   appears in the preview or saved output.
 
 Everything can run **100% offline** (after the one-time model download).
 
