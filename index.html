@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Relight Studio — Local Virtual Photo Lighting</title>
+<style>
+  :root{
+    --bg:#0e0f13; --panel:#171922; --panel2:#1f2230; --line:#2a2e3d;
+    --txt:#e7e9f0; --muted:#9aa0b5; --accent:#ffcf6b; --accent2:#6bb8ff;
+    --good:#5fd28a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:"Segoe UI",system-ui,Arial,sans-serif;background:var(--bg);color:var(--txt);overflow:hidden}
+  #app{display:flex;height:100vh;width:100vw}
+  /* ---- Stage ---- */
+  #stage{flex:1;display:flex;flex-direction:column;min-width:0;background:
+    radial-gradient(1200px 600px at 50% -10%, #1b1e2a 0%, #0e0f13 60%)}
+  #toolbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:#0b0c10}
+  #toolbar h1{font-size:15px;margin:0;letter-spacing:.5px;font-weight:600}
+  #toolbar .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:2px 8px;border-radius:20px}
+  #toolbar .spacer{flex:1}
+  .btn{background:var(--panel2);color:var(--txt);border:1px solid var(--line);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px}
+  .btn:hover{border-color:#3a3f54;background:#262a3a}
+  .btn.primary{background:linear-gradient(180deg,#ffd97a,#f4b942);color:#241c05;border:none;font-weight:600}
+  .btn.primary:hover{filter:brightness(1.05)}
+  #canvasWrap{flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+  canvas{max-width:100%;max-height:100%;border-radius:6px;box-shadow:0 20px 60px rgba(0,0,0,.55);background:#000}
+  #drop{position:absolute;inset:24px;border:2px dashed var(--line);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);gap:10px;text-align:center;pointer-events:none}
+  #drop.hidden{display:none}
+  #drop b{color:var(--txt);font-size:18px}
+  #drop .hint{font-size:13px;max-width:420px}
+  #fps{position:absolute;left:14px;bottom:10px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  /* ---- Side panel ---- */
+  #panel{width:360px;flex:none;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column}
+  #panel .scroll{overflow-y:auto;padding:14px 14px 40px}
+  .section{border:1px solid var(--line);background:var(--panel2);border-radius:10px;margin-bottom:12px}
+  .section > .head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none}
+  .section > .head .ttl{font-size:13px;font-weight:600;flex:1}
+  .section > .head .chev{color:var(--muted);transition:transform .15s}
+  .section.collapsed .body{display:none}
+  .section.collapsed .chev{transform:rotate(-90deg)}
+  .body{padding:6px 12px 12px}
+  .row{margin:10px 0}
+  .row label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px}
+  .row label .val{color:var(--txt);font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--accent);height:4px}
+  .lightCard{border:1px solid var(--line);border-radius:9px;margin:10px 0;background:#191c28}
+  .lightCard .lhead{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
+  .lightCard .lhead .name{font-size:12px;font-weight:600;flex:1}
+  .lightCard .lbody{padding:6px 10px 10px}
+  .dot{width:12px;height:12px;border-radius:50%;border:1px solid rgba(255,255,255,.3)}
+  .mini{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:6px;cursor:pointer;font-size:12px;padding:3px 7px}
+  .mini:hover{color:var(--txt);border-color:#3a3f54}
+  .swatch{display:flex;align-items:center;gap:8px}
+  input[type=color]{width:34px;height:26px;border:1px solid var(--line);background:none;border-radius:6px;padding:0;cursor:pointer}
+  /* compass */
+  .compass{width:120px;height:120px;margin:6px auto;position:relative;border-radius:50%;
+    background:radial-gradient(circle at 50% 40%,#262a3a,#12141d);border:1px solid var(--line);cursor:crosshair}
+  .compass .ring{position:absolute;inset:8px;border-radius:50%;border:1px dashed #3a3f54}
+  .compass .handle{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 10px var(--accent);transform:translate(-50%,-50%);pointer-events:none}
+  .compass .center{position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:50%;background:#555;transform:translate(-50%,-50%)}
+  .hr{height:1px;background:var(--line);margin:10px 0;border:0}
+  .small{font-size:11px;color:var(--muted);line-height:1.5}
+  .toprow{display:flex;gap:8px;flex-wrap:wrap}
+  .grow{flex:1}
+  ::-webkit-scrollbar{width:10px}
+  ::-webkit-scrollbar-thumb{background:#2a2e3d;border-radius:6px}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- STAGE -->
+  <div id="stage">
+    <div id="toolbar">
+      <h1>◐ Relight Studio</h1>
+      <span class="tag">100% local · offline · GPU</span>
+      <div class="spacer"></div>
+      <button class="btn" id="btnOpen">Open Image…</button>
+      <button class="btn" id="btnReset">Reset Lights</button>
+      <button class="btn" id="btnCompare" title="Hold to view original">Compare</button>
+      <button class="btn primary" id="btnSave">Save PNG</button>
+      <input type="file" id="file" accept="image/*" style="display:none" />
+    </div>
+    <div id="canvasWrap">
+      <canvas id="gl"></canvas>
+      <div id="drop">
+        <b>Drop a photo here</b>
+        <div class="hint">or click <b>Open Image…</b>. Everything runs on your machine — no upload, no internet. Then sculpt the light using the panel on the right.</div>
+      </div>
+      <div id="fps"></div>
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div id="panel">
+    <div class="scroll" id="scroll">
+
+      <!-- LIGHTS -->
+      <div class="section" id="secLights">
+        <div class="head"><span class="ttl">Light Sources</span><button class="mini" id="addLight">+ Add</button><span class="chev">▾</span></div>
+        <div class="body">
+          <div id="lightList"></div>
+          <div class="small">Each light has independent direction, color, intensity, softness and spread. Up to 4 lights.</div>
+        </div>
+      </div>
+
+      <!-- GLOBAL SCENE -->
+      <div class="section" id="secScene">
+        <div class="head"><span class="ttl">Scene & Surface</span><span class="chev">▾</span></div>
+        <div class="body">
+          <div class="row"><label>Ambient fill <span class="val" data-v="ambient"></span></label><input type="range" id="ambient" min="0" max="1.5" step="0.01" value="0.55"></div>
+          <div class="row"><label>Exposure <span class="val" data-v="exposure"></span></label><input type="range" id="exposure" min="0.2" max="2.5" step="0.01" value="1.0"></div>
+          <div class="row"><label>Surface relief (3D feel) <span class="val" data-v="relief"></span></label><input type="range" id="relief" min="0" max="6" step="0.05" value="2.2"></div>
+          <div class="row"><label>Detail scale <span class="val" data-v="detail"></span></label><input type="range" id="detail" min="1" max="10" step="0.5" value="3"></div>
+          <hr class="hr">
+          <div class="row"><label>Shadow strength <span class="val" data-v="shadowStr"></span></label><input type="range" id="shadowStr" min="0" max="1" step="0.01" value="0.65"></div>
+          <div class="row"><label>Shadow falloff <span class="val" data-v="shadowFall"></span></label><input type="range" id="shadowFall" min="0.4" max="4" step="0.05" value="1.4"></div>
+          <hr class="hr">
+          <div class="row"><label>Preserve original <span class="val" data-v="preserve"></span></label><input type="range" id="preserve" min="0" max="1" step="0.01" value="0.15"></div>
+          <div class="row"><label>Specular highlight <span class="val" data-v="specAmt"></span></label><input type="range" id="specAmt" min="0" max="1.5" step="0.01" value="0.35"></div>
+        </div>
+      </div>
+
+      <!-- AI RELIGHT (PHOTOREALISTIC) -->
+      <div class="section" id="secAI">
+        <div class="head"><span class="ttl">🤖 AI Relight — Photorealistic</span><span class="chev">▾</span></div>
+        <div class="body">
+          <div id="aiStatus" class="small" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#12141d;margin-bottom:8px">Checking engine…</div>
+
+          <div class="row">
+            <label>Lighting description (prompt)</label>
+            <textarea id="aiPrompt" rows="2" style="width:100%;background:#12141d;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px;resize:vertical">dramatic cinematic lighting, golden rim light, soft shadows, volumetric, hyperrealistic</textarea>
+          </div>
+
+          <div class="row">
+            <label>Dramatic presets</label>
+            <div class="toprow" id="aiPresets"></div>
+          </div>
+
+          <div class="row">
+            <label>Light direction (initial)</label>
+            <div class="toprow" id="aiDir"></div>
+          </div>
+
+          <div class="row"><label>Quality steps <span class="val" id="aiStepsV">25</span></label><input type="range" id="aiSteps" min="8" max="50" step="1" value="25"></div>
+          <div class="row"><label>Light influence (CFG) <span class="val" id="aiCfgV">2.0</span></label><input type="range" id="aiCfg" min="1" max="8" step="0.1" value="2.0"></div>
+          <div class="row"><label>Detail preserve (denoise) <span class="val" id="aiDenV">0.50</span></label><input type="range" id="aiDen" min="0.3" max="0.9" step="0.01" value="0.5"></div>
+          <div class="row">
+            <label>Output size</label>
+            <select id="aiSize" style="width:100%;background:#12141d;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px">
+              <option value="512x640">Portrait 512×640 (fast)</option>
+              <option value="512x512">Square 512×512</option>
+              <option value="640x512">Landscape 640×512</option>
+              <option value="640x768">Large portrait 640×768 (slower)</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label>Engine</label>
+            <div class="toprow">
+              <label class="small" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="aiEngine" value="local" checked> Local (your GPU)</label>
+              <label class="small" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="aiEngine" value="cloud"> Online (fal.ai)</label>
+            </div>
+          </div>
+
+          <button class="btn primary" id="aiRender" style="width:100%;margin-top:6px">✨ Render Photorealistic Relight</button>
+          <div class="small" style="margin-top:8px">First local run downloads ~5 GB of models (one time), then renders in seconds on your 4070. The WebGL studio above stays instant for live tweaking.</div>
+        </div>
+      </div>
+
+      <!-- FINISHING -->
+      <div class="section collapsed" id="secFinish">
+        <div class="head"><span class="ttl">Finishing</span><span class="chev">▾</span></div>
+        <div class="body">
+          <div class="row"><label>Contrast <span class="val" data-v="contrast"></span></label><input type="range" id="contrast" min="0.5" max="1.8" step="0.01" value="1.0"></div>
+          <div class="row"><label>Saturation <span class="val" data-v="saturation"></span></label><input type="range" id="saturation" min="0" max="2" step="0.01" value="1.0"></div>
+          <div class="row"><label>Vignette <span class="val" data-v="vignette"></span></label><input type="range" id="vignette" min="0" max="1" step="0.01" value="0.0"></div>
+          <div class="row"><label>Bloom (glow) <span class="val" data-v="bloom"></span></label><input type="range" id="bloom" min="0" max="1" step="0.01" value="0.0"></div>
+        </div>
+      </div>
+
+      <div class="small" style="padding:0 4px">
+        Tip: drag the compass dial on each light to aim it 360° around your subject. Hold <b>Compare</b> to peek at the untouched original.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   Relight Studio — single-file local relighting app.
+   Technique: estimate surface normals from photo luminance gradients, then
+   run a multi-light Phong-style lighting model per pixel on the GPU (WebGL).
+   No network, no dependencies.
+   ========================================================================= */
+
+const MAX_LIGHTS = 4;
+
+// ---------- Color temperature (Kelvin -> linear-ish RGB multiplier) ----------
+function kelvinToRGB(k){
+  const t = k/100; let r,g,b;
+  if(t<=66){ r=255; } else { r=329.7*Math.pow(t-60,-0.1332); }
+  if(t<=66){ g=99.47*Math.log(t)-161.12; } else { g=288.12*Math.pow(t-60,-0.0755); }
+  if(t>=66){ b=255; } else if(t<=19){ b=0; } else { b=138.52*Math.log(t-10)-305.04; }
+  const cl=v=>Math.max(0,Math.min(255,v))/255;
+  return [cl(r),cl(g),cl(b)];
+}
+
+// ---------- Light model ----------
+let lightSeq = 0;
+function makeLight(preset){
+  lightSeq++;
+  return Object.assign({
+    id: lightSeq,
+    on: true,
+    name: "Light "+lightSeq,
+    color: "#ffffff",
+    az: 135,            // azimuth degrees 0-360 (direction around subject)
+    el: 45,             // elevation degrees 0-90
+    intensity: 0.9,
+    soft: 0.4,          // wrap / softness 0-1
+    hard: 0.5,          // specular hardness 0-1
+    diffusion: 0.5,     // spread of contribution 0-1
+    kelvin: 6500        // color temperature
+  }, preset||{});
+}
+
+let lights = [ makeLight({name:"Key",  az:130, el:50, intensity:1.0, kelvin:5200, color:"#fff2dc"}),
+               makeLight({name:"Fill", az:300, el:30, intensity:0.45, kelvin:7200, color:"#dceaff", soft:0.75}) ];
+
+// ---------- Global scene params ----------
+const P = {
+  ambient:0.55, exposure:1.0, relief:2.2, detail:3,
+  shadowStr:0.65, shadowFall:1.4, preserve:0.15, specAmt:0.35,
+  contrast:1.0, saturation:1.0, vignette:0.0, bloom:0.0
+};
+
+// =========================================================================
+//  WebGL setup
+// =========================================================================
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl', {preserveDrawingBuffer:true, antialias:true});
+if(!gl){ alert("WebGL is not available in this browser. Try Chrome or Edge."); }
+
+const VERT = `
+attribute vec2 aPos;
+varying vec2 vUv;
+void main(){ vUv = vec2(aPos.x*0.5+0.5, 1.0-(aPos.y*0.5+0.5)); gl_Position = vec4(aPos,0.0,1.0); }
+`;
+
+const FRAG = `
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2  uTexel;        // 1/width, 1/height
+uniform float uRelief;
+uniform float uDetail;
+uniform float uAmbient;
+uniform float uExposure;
+uniform float uShadowStr;
+uniform float uShadowFall;
+uniform float uPreserve;
+uniform float uSpecAmt;
+uniform float uContrast;
+uniform float uSaturation;
+uniform float uVignette;
+uniform float uBloom;
+uniform int   uCompare;
+
+uniform int   uNumLights;
+uniform vec3  uLdir[${MAX_LIGHTS}];
+uniform vec3  uLcol[${MAX_LIGHTS}];
+uniform float uLint[${MAX_LIGHTS}];
+uniform float uLsoft[${MAX_LIGHTS}];
+uniform float uLhard[${MAX_LIGHTS}];
+uniform float uLdiff[${MAX_LIGHTS}];
+
+float lum(vec3 c){ return dot(c, vec3(0.299,0.587,0.114)); }
+
+vec3 sampleBlur(vec2 uv, float r){
+  // light 5-tap blur used for normal estimation softness
+  vec3 c = texture2D(uTex,uv).rgb*0.4;
+  c += texture2D(uTex,uv+vec2(uTexel.x*r,0.0)).rgb*0.15;
+  c += texture2D(uTex,uv-vec2(uTexel.x*r,0.0)).rgb*0.15;
+  c += texture2D(uTex,uv+vec2(0.0,uTexel.y*r)).rgb*0.15;
+  c += texture2D(uTex,uv-vec2(0.0,uTexel.y*r)).rgb*0.15;
+  return c;
+}
+
+void main(){
+  vec3 base = texture2D(uTex, vUv).rgb;
+  if(uCompare==1){ gl_FragColor = vec4(base,1.0); return; }
+
+  float d = uDetail;
+  // Sobel-like gradient of luminance -> surface normal
+  float l  = lum(sampleBlur(vUv - vec2(uTexel.x*d,0.0), d));
+  float rr = lum(sampleBlur(vUv + vec2(uTexel.x*d,0.0), d));
+  float t  = lum(sampleBlur(vUv - vec2(0.0,uTexel.y*d), d));
+  float b  = lum(sampleBlur(vUv + vec2(0.0,uTexel.y*d), d));
+  vec3 N = normalize(vec3((l-rr)*uRelief, (t-b)*uRelief, 1.0));
+
+  vec3 V = vec3(0.0,0.0,1.0);
+  vec3 lightSum = base * uAmbient;
+  vec3 specSum  = vec3(0.0);
+  float litTotal = 0.0;
+
+  for(int i=0;i<${MAX_LIGHTS};i++){
+    if(i>=uNumLights) break;
+    vec3 Ld = uLdir[i];
+    float ndl = dot(N, Ld);
+    float w = uLsoft[i];                       // wrap lighting -> softness
+    float diff = max((ndl + w)/(1.0+w), 0.0);
+    diff = pow(diff, uShadowFall);
+    // diffusion broadens/flattens the falloff
+    diff = mix(diff, sqrt(diff), uLdiff[i]);
+    vec3 H = normalize(Ld + V);
+    float shin = mix(6.0, 160.0, uLhard[i]);
+    float spec = pow(max(dot(N,H),0.0), shin) * uSpecAmt * (0.4+uLhard[i]);
+    vec3 lc = uLcol[i]*uLint[i];
+    lightSum += base * lc * diff;
+    specSum  += lc * spec;
+    litTotal += diff*uLint[i];
+  }
+
+  litTotal = clamp(litTotal,0.0,1.0);
+  // shadow strength darkens unlit regions below ambient
+  float shade = 1.0 - uShadowStr*(1.0-litTotal);
+  vec3 col = lightSum*shade + specSum;
+
+  col = mix(col, base, uPreserve);
+  col *= uExposure;
+
+  // bloom: cheap glow from bright spots
+  if(uBloom>0.0){
+    vec3 g = sampleBlur(vUv, 6.0*uDetail);
+    g = max(g-0.6,0.0);
+    col += g*uBloom*1.6;
+  }
+
+  // contrast & saturation
+  col = (col-0.5)*uContrast+0.5;
+  float L = lum(col);
+  col = mix(vec3(L), col, uSaturation);
+
+  // vignette
+  if(uVignette>0.0){
+    vec2 q = vUv-0.5;
+    float vig = 1.0 - dot(q,q)*uVignette*2.2;
+    col *= clamp(vig,0.0,1.0);
+  }
+
+  gl_FragColor = vec4(clamp(col,0.0,1.0),1.0);
+}
+`;
+
+function compile(type,src){
+  const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(s)); throw new Error("shader compile"); }
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,VERT));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FRAG));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(prog)); }
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 1,-1, -1,1, 1,1]),gl.STATIC_DRAW);
+const aPos=gl.getAttribLocation(prog,'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+
+const tex=gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D,tex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+
+const U = {};
+["uTex","uTexel","uRelief","uDetail","uAmbient","uExposure","uShadowStr","uShadowFall",
+ "uPreserve","uSpecAmt","uContrast","uSaturation","uVignette","uBloom","uCompare","uNumLights",
+ "uLdir","uLcol","uLint","uLsoft","uLhard","uLdiff"].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+
+let imgW=0, imgH=0, hasImage=false, compareMode=0;
+
+function loadImage(img){
+  imgW=img.naturalWidth; imgH=img.naturalHeight;
+  // cap very large images for performance
+  const MAXD=2200; let w=imgW,h=imgH;
+  if(Math.max(w,h)>MAXD){ const s=MAXD/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  c.getContext('2d').drawImage(img,0,0,w,h);
+  imgW=w; imgH=h;
+  canvas.width=w; canvas.height=h;
+  gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,c);
+  gl.viewport(0,0,w,h);
+  hasImage=true;
+  document.getElementById('drop').classList.add('hidden');
+  render();
+}
+
+// =========================================================================
+//  Render
+// =========================================================================
+let lastT=performance.now(), frames=0, fpsEl=document.getElementById('fps');
+function render(){
+  if(!hasImage) return;
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.useProgram(prog);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.uniform1i(U.uTex,0);
+  gl.uniform2f(U.uTexel,1/imgW,1/imgH);
+  gl.uniform1f(U.uRelief,P.relief);
+  gl.uniform1f(U.uDetail,P.detail);
+  gl.uniform1f(U.uAmbient,P.ambient);
+  gl.uniform1f(U.uExposure,P.exposure);
+  gl.uniform1f(U.uShadowStr,P.shadowStr);
+  gl.uniform1f(U.uShadowFall,P.shadowFall);
+  gl.uniform1f(U.uPreserve,P.preserve);
+  gl.uniform1f(U.uSpecAmt,P.specAmt);
+  gl.uniform1f(U.uContrast,P.contrast);
+  gl.uniform1f(U.uSaturation,P.saturation);
+  gl.uniform1f(U.uVignette,P.vignette);
+  gl.uniform1f(U.uBloom,P.bloom);
+  gl.uniform1i(U.uCompare,compareMode);
+
+  const active = lights.filter(l=>l.on).slice(0,MAX_LIGHTS);
+  gl.uniform1i(U.uNumLights,active.length);
+  const dir=[],col=[],intn=[],sft=[],hrd=[],dff=[];
+  active.forEach(l=>{
+    const az=l.az*Math.PI/180, el=l.el*Math.PI/180;
+    dir.push(Math.cos(el)*Math.cos(az), Math.cos(el)*Math.sin(az), Math.sin(el));
+    const base=hexToRGB(l.color), k=kelvinToRGB(l.kelvin);
+    col.push(base[0]*k[0], base[1]*k[1], base[2]*k[2]);
+    intn.push(l.intensity); sft.push(l.soft*1.0); hrd.push(l.hard); dff.push(l.diffusion);
+  });
+  // pad arrays
+  while(dir.length<MAX_LIGHTS*3){ dir.push(0,0,1); col.push(0,0,0); }
+  while(intn.length<MAX_LIGHTS){ intn.push(0); sft.push(0); hrd.push(0); dff.push(0); }
+  gl.uniform3fv(U.uLdir,new Float32Array(dir));
+  gl.uniform3fv(U.uLcol,new Float32Array(col));
+  gl.uniform1fv(U.uLint,new Float32Array(intn));
+  gl.uniform1fv(U.uLsoft,new Float32Array(sft));
+  gl.uniform1fv(U.uLhard,new Float32Array(hrd));
+  gl.uniform1fv(U.uLdiff,new Float32Array(dff));
+
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+  frames++; const now=performance.now();
+  if(now-lastT>500){ fpsEl.textContent=Math.round(frames*1000/(now-lastT))+" fps · "+imgW+"×"+imgH; frames=0; lastT=now; }
+}
+
+function hexToRGB(h){ h=h.replace('#',''); return [parseInt(h.substr(0,2),16)/255,parseInt(h.substr(2,2),16)/255,parseInt(h.substr(4,2),16)/255]; }
+
+// =========================================================================
+//  UI — light cards + compass
+// =========================================================================
+const lightList=document.getElementById('lightList');
+function rebuildLights(){
+  lightList.innerHTML='';
+  lights.forEach((l,idx)=>{
+    const card=document.createElement('div'); card.className='lightCard';
+    card.innerHTML=`
+      <div class="lhead">
+        <span class="dot" style="background:${l.color}"></span>
+        <input class="name" value="${l.name}" style="flex:1;background:transparent;border:none;color:var(--txt);font-weight:600;font-size:12px"/>
+        <button class="mini tog">${l.on?'On':'Off'}</button>
+        <button class="mini del">✕</button>
+      </div>
+      <div class="lbody">
+        <div class="compass"><div class="ring"></div><div class="center"></div><div class="handle"></div></div>
+        <div class="row"><label>Azimuth (around) <span class="val">${l.az|0}°</span></label><input type="range" class="az" min="0" max="360" step="1" value="${l.az}"></div>
+        <div class="row"><label>Elevation (height) <span class="val">${l.el|0}°</span></label><input type="range" class="el" min="0" max="90" step="1" value="${l.el}"></div>
+        <div class="row"><label>Intensity <span class="val">${l.intensity.toFixed(2)}</span></label><input type="range" class="int" min="0" max="2.5" step="0.01" value="${l.intensity}"></div>
+        <div class="row"><label>Softness <span class="val">${l.soft.toFixed(2)}</span></label><input type="range" class="soft" min="0" max="1.5" step="0.01" value="${l.soft}"></div>
+        <div class="row"><label>Hardness (specular) <span class="val">${l.hard.toFixed(2)}</span></label><input type="range" class="hard" min="0" max="1" step="0.01" value="${l.hard}"></div>
+        <div class="row"><label>Diffusion / spread <span class="val">${l.diffusion.toFixed(2)}</span></label><input type="range" class="diff" min="0" max="1" step="0.01" value="${l.diffusion}"></div>
+        <div class="row"><label>Color temperature <span class="val">${l.kelvin}K</span></label><input type="range" class="kelvin" min="2000" max="12000" step="100" value="${l.kelvin}"></div>
+        <div class="swatch"><span class="small">Tint</span><input type="color" class="col" value="${l.color}"></div>
+      </div>`;
+    lightList.appendChild(card);
+
+    const q=s=>card.querySelector(s);
+    const setVal=(inp,txt)=>{ inp.previousElementSibling.querySelector('.val').textContent=txt; };
+
+    q('.name').addEventListener('input',e=>{ l.name=e.target.value; });
+    q('.tog').addEventListener('click',e=>{ l.on=!l.on; e.target.textContent=l.on?'On':'Off'; render(); });
+    q('.del').addEventListener('click',()=>{ lights.splice(idx,1); rebuildLights(); render(); });
+    q('.col').addEventListener('input',e=>{ l.color=e.target.value; card.querySelector('.dot').style.background=l.color; render(); });
+
+    const bind=(cls,prop,fmt)=>{ const inp=q('.'+cls); inp.addEventListener('input',e=>{ l[prop]=parseFloat(e.target.value); setVal(inp,fmt(l[prop])); if(prop==='az'||prop==='el')placeHandle(card,l); render(); }); };
+    bind('az','az',v=>(v|0)+'°'); bind('el','el',v=>(v|0)+'°');
+    bind('int','intensity',v=>v.toFixed(2)); bind('soft','soft',v=>v.toFixed(2));
+    bind('hard','hard',v=>v.toFixed(2)); bind('diff','diffusion',v=>v.toFixed(2));
+    bind('kelvin','kelvin',v=>v+'K');
+
+    // compass interaction
+    const comp=q('.compass');
+    function fromEvent(ev){
+      const r=comp.getBoundingClientRect();
+      const cx=r.left+r.width/2, cy=r.top+r.height/2;
+      const x=(ev.touches?ev.touches[0].clientX:ev.clientX)-cx;
+      const y=(ev.touches?ev.touches[0].clientY:ev.clientY)-cy;
+      let ang=Math.atan2(y,x)*180/Math.PI; if(ang<0)ang+=360;
+      l.az=Math.round(ang);
+      const dist=Math.min(1,Math.sqrt(x*x+y*y)/(r.width/2));
+      l.el=Math.round((1-dist)*90);
+      q('.az').value=l.az; q('.el').value=l.el;
+      setVal(q('.az'),l.az+'°'); setVal(q('.el'),l.el+'°');
+      placeHandle(card,l); render();
+    }
+    let drag=false;
+    comp.addEventListener('mousedown',e=>{drag=true;fromEvent(e);});
+    window.addEventListener('mousemove',e=>{if(drag)fromEvent(e);});
+    window.addEventListener('mouseup',()=>{drag=false;});
+    comp.addEventListener('touchstart',e=>{drag=true;fromEvent(e);e.preventDefault();},{passive:false});
+    comp.addEventListener('touchmove',e=>{if(drag){fromEvent(e);e.preventDefault();}},{passive:false});
+    comp.addEventListener('touchend',()=>{drag=false;});
+    placeHandle(card,l);
+  });
+}
+function placeHandle(card,l){
+  const h=card.querySelector('.handle'); const az=l.az*Math.PI/180;
+  const dist=(1-l.el/90); const R=52*dist;
+  const cx=60+Math.cos(az)*R, cy=60+Math.sin(az)*R;
+  h.style.left=cx+'px'; h.style.top=cy+'px';
+}
+
+// =========================================================================
+//  Global param sliders
+// =========================================================================
+function refreshGlobalLabels(){
+  document.querySelectorAll('[data-v]').forEach(el=>{
+    const k=el.getAttribute('data-v'); const v=P[k];
+    el.textContent=(Math.abs(v)>=100? v : v.toFixed(2));
+  });
+}
+Object.keys(P).forEach(k=>{
+  const el=document.getElementById(k);
+  if(!el) return;
+  el.addEventListener('input',e=>{ P[k]=parseFloat(e.target.value); refreshGlobalLabels(); render(); });
+});
+
+// section collapse
+document.querySelectorAll('.section .head').forEach(h=>{
+  h.addEventListener('click',e=>{ if(e.target.closest('button')||e.target.closest('input'))return; h.parentElement.classList.toggle('collapsed'); });
+});
+
+// =========================================================================
+//  Toolbar actions
+// =========================================================================
+const fileInput=document.getElementById('file');
+document.getElementById('btnOpen').onclick=()=>fileInput.click();
+document.getElementById('addLight').onclick=()=>{ if(lights.length>=MAX_LIGHTS){alert("Maximum "+MAX_LIGHTS+" lights.");return;} lights.push(makeLight({az:Math.round(Math.random()*360)})); rebuildLights(); render(); };
+fileInput.onchange=e=>{ const f=e.target.files[0]; if(f)readFile(f); };
+
+let currentFile=null;
+function readFile(f){
+  currentFile=f;
+  const img=new Image();
+  img.onload=()=>loadImage(img);
+  img.onerror=()=>alert("Could not load that image.");
+  img.src=URL.createObjectURL(f);
+}
+
+document.getElementById('btnReset').onclick=()=>{
+  lights=[ makeLight({name:"Key",az:130,el:50,intensity:1.0,kelvin:5200,color:"#fff2dc"}),
+           makeLight({name:"Fill",az:300,el:30,intensity:0.45,kelvin:7200,color:"#dceaff",soft:0.75}) ];
+  rebuildLights(); render();
+};
+
+const cmp=document.getElementById('btnCompare');
+const setCmp=v=>{compareMode=v;render();};
+cmp.addEventListener('mousedown',()=>setCmp(1));
+cmp.addEventListener('mouseup',()=>setCmp(0));
+cmp.addEventListener('mouseleave',()=>setCmp(0));
+cmp.addEventListener('touchstart',e=>{setCmp(1);e.preventDefault();});
+cmp.addEventListener('touchend',()=>setCmp(0));
+
+document.getElementById('btnSave').onclick=()=>{
+  if(!hasImage){alert("Open an image first.");return;}
+  render();
+  canvas.toBlob(b=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b); a.download='relit.png'; a.click();
+  },'image/png');
+};
+
+// drag & drop
+const wrap=document.getElementById('canvasWrap');
+['dragenter','dragover'].forEach(ev=>wrap.addEventListener(ev,e=>{e.preventDefault();}));
+wrap.addEventListener('drop',e=>{ e.preventDefault(); const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith('image'))readFile(f); });
+window.addEventListener('paste',e=>{ const it=[...e.clipboardData.items].find(i=>i.type.startsWith('image')); if(it)readFile(it.getAsFile()); });
+
+// =========================================================================
+//  AI Relight (IC-Light backend)
+// =========================================================================
+const AI = {
+  presets:[
+    ["Cinematic","dramatic cinematic lighting, strong rim light, soft volumetric shadows, hyperrealistic, film still"],
+    ["Golden hour","warm golden hour sunlight from the side, long soft shadows, glowing skin, photorealistic"],
+    ["Studio","professional softbox studio lighting, clean key and fill, beauty light, high detail"],
+    ["Sunset rim","dramatic sunset backlight, orange rim light, moody atmosphere, cinematic"],
+    ["Neon noir","neon city lights, teal and magenta, wet reflections, Wong Kar-wai, cinematic"],
+    ["Window light","soft natural light from a window, gentle shadows, cozy, photorealistic"],
+    ["Hard noir","single hard light, deep dramatic shadows, film noir, high contrast"],
+    ["Moonlight","cool blue moonlight, low key, soft glow, cinematic night"]
+  ],
+  dirs:[["Auto","None"],["← Left","Left Light"],["Right →","Right Light"],["↑ Top","Top Light"],["↓ Bottom","Bottom Light"]],
+  bg:"None", busy:false, available:false
+};
+
+const aiPresetsEl=document.getElementById('aiPresets');
+AI.presets.forEach(([name,txt])=>{ const b=document.createElement('button'); b.className='mini'; b.textContent=name; b.onclick=()=>{document.getElementById('aiPrompt').value=txt;}; aiPresetsEl.appendChild(b); });
+const aiDirEl=document.getElementById('aiDir');
+AI.dirs.forEach(([name,val],i)=>{ const b=document.createElement('button'); b.className='mini'; b.textContent=name; b.dataset.v=val; if(i===0)b.style.borderColor='var(--accent)'; b.onclick=()=>{AI.bg=val; [...aiDirEl.children].forEach(c=>c.style.borderColor='var(--line)'); b.style.borderColor='var(--accent)';}; aiDirEl.appendChild(b); });
+
+const bindV=(id,vid,fmt)=>{const el=document.getElementById(id);const v=document.getElementById(vid);el.addEventListener('input',()=>v.textContent=fmt(parseFloat(el.value)));};
+bindV('aiSteps','aiStepsV',v=>v|0); bindV('aiCfg','aiCfgV',v=>v.toFixed(1)); bindV('aiDen','aiDenV',v=>v.toFixed(2));
+
+const aiStatusEl=document.getElementById('aiStatus');
+async function pollStatus(){
+  try{
+    const r=await fetch('/api/status'); const s=await r.json(); AI.available=true;
+    let msg='';
+    if(s.error){ msg='⚠️ '+s.error; }
+    else if(s.loaded){ msg='✅ Engine ready · '+(s.gpu||'GPU'); }
+    else if(s.loading){ msg='⏳ Loading models… '+(s.progress||''); }
+    else { msg='💤 Engine idle ('+(s.gpu||(s.cuda?'GPU':'CPU'))+'). Click render to start.'; }
+    aiStatusEl.textContent=msg;
+  }catch(e){
+    AI.available=false;
+    aiStatusEl.innerHTML='⚠️ Backend not running. Launch with <b>start.bat</b> (or run <code>python backend/server.py</code>) and open <b>http://localhost:7860</b>.';
+  }
+}
+pollStatus(); setInterval(pollStatus, 2500);
+
+// result modal
+const modal=document.createElement('div');
+modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;align-items:center;justify-content:center;z-index:50;flex-direction:column;gap:14px;padding:24px';
+modal.innerHTML=`<div style="max-width:90vw;max-height:78vh;display:flex;gap:14px;align-items:center">
+    <img id="modalImg" style="max-width:90vw;max-height:78vh;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.6)"/>
+  </div>
+  <div style="display:flex;gap:10px">
+    <button class="btn" id="modalClose">Close</button>
+    <button class="btn" id="modalUse">Use as base image</button>
+    <button class="btn primary" id="modalDl">Download PNG</button>
+  </div>`;
+document.body.appendChild(modal);
+let modalBlob=null;
+document.getElementById('modalClose').onclick=()=>modal.style.display='none';
+document.getElementById('modalDl').onclick=()=>{ if(!modalBlob)return; const a=document.createElement('a'); a.href=URL.createObjectURL(modalBlob); a.download='relit-ai.png'; a.click(); };
+document.getElementById('modalUse').onclick=()=>{ if(!modalBlob)return; readFile(new File([modalBlob],'ai.png',{type:'image/png'})); modal.style.display='none'; };
+
+const aiBtn=document.getElementById('aiRender');
+aiBtn.onclick=async()=>{
+  if(AI.busy)return;
+  if(!currentFile){ alert('Open an image first.'); return; }
+  const engine=document.querySelector('input[name=aiEngine]:checked').value;
+  const [w,h]=document.getElementById('aiSize').value.split('x').map(Number);
+  const fd=new FormData();
+  fd.append('image',currentFile);
+  fd.append('prompt',document.getElementById('aiPrompt').value||'cinematic lighting');
+  fd.append('bg_source',AI.bg);
+  if(engine==='local'){
+    fd.append('width',w); fd.append('height',h);
+    fd.append('steps',document.getElementById('aiSteps').value);
+    fd.append('cfg',document.getElementById('aiCfg').value);
+    fd.append('highres_denoise',document.getElementById('aiDen').value);
+  }
+  AI.busy=true; aiBtn.disabled=true; const orig=aiBtn.textContent;
+  aiBtn.textContent='✨ Rendering… (first run downloads models)';
+  try{
+    const url=engine==='cloud'?'/api/relight_cloud':'/api/relight';
+    const r=await fetch(url,{method:'POST',body:fd});
+    if(!r.ok){ const t=await r.text(); throw new Error(t||('HTTP '+r.status)); }
+    modalBlob=await r.blob();
+    document.getElementById('modalImg').src=URL.createObjectURL(modalBlob);
+    modal.style.display='flex';
+  }catch(e){
+    alert('AI relight failed:\n'+e.message);
+  }finally{
+    AI.busy=false; aiBtn.disabled=false; aiBtn.textContent=orig;
+  }
+};
+
+// init
+rebuildLights();
+refreshGlobalLabels();
+
+// demo placeholder so the canvas isn't blank: subtle gradient
+(function(){
+  const c=document.createElement('canvas'); c.width=64;c.height=64;
+  const ctx=c.getContext('2d'); const g=ctx.createLinearGradient(0,0,64,64);
+  g.addColorStop(0,'#2a2e3d'); g.addColorStop(1,'#12141d'); ctx.fillStyle=g; ctx.fillRect(0,0,64,64);
+})();
+</script>
+</body>
+</html>

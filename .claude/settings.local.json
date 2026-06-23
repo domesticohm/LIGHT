@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(start \"\" \"index.html\")",
+      "PowerShell(winget install *)",
+      "PowerShell($uv = \"$env:USERPROFILE\\\\.local\\\\bin\\\\uv.exe\"; if \\(Test-Path $uv\\) { Write-Output \"FOUND: $uv\"; & $uv --version } else { Write-Output \"not in .local\\\\bin, searching...\"; Get-ChildItem -Path \"$env:LOCALAPPDATA\\\\Microsoft\\\\WinGet\\\\Links\",\"$env:USERPROFILE\\\\.local\\\\bin\" -Filter uv.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName })",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell($uv = \"C:\\\\Users\\\\shamp\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Packages\\\\astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe\\\\uv.exe\"; Set-Location \"C:\\\\Users\\\\shamp\\\\OneDrive\\\\Desktop\\\\LIGHT\"; & $uv python install 3.11; if \\($?\\) { & $uv venv --python 3.11 .venv; Write-Output \"=== venv python ===\"; & \".venv\\\\Scripts\\\\python.exe\" --version })",
+      "PowerShell($uv = \"C:\\\\Users\\\\shamp\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Packages\\\\astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe\\\\uv.exe\"; Set-Location \"C:\\\\Users\\\\shamp\\\\OneDrive\\\\Desktop\\\\LIGHT\"; & $uv pip install --python \".venv\\\\Scripts\\\\python.exe\" torch torchvision --index-url https://download.pytorch.org/whl/cu121)",
+      "Bash(git clone *)",
+      "PowerShell($uv = \"C:\\\\Users\\\\shamp\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Packages\\\\astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe\\\\uv.exe\"; Set-Location \"C:\\\\Users\\\\shamp\\\\OneDrive\\\\Desktop\\\\LIGHT\"; & $uv pip install --python \".venv\\\\Scripts\\\\python.exe\" \"diffusers==0.27.2\" \"transformers==4.38.2\" \"accelerate==0.27.2\" \"peft==0.10.0\" safetensors \"huggingface_hub<0.26\" opencv-contrib-python \"pillow>=10.2\" einops \"numpy<2\" \"protobuf==3.20.3\" fastapi \"uvicorn[standard]\" python-multipart requests)",
+      "PowerShell(Set-Location \"C:\\\\Users\\\\shamp\\\\OneDrive\\\\Desktop\\\\LIGHT\"; $env:PORT=\"7860\"; & \".venv\\\\Scripts\\\\python.exe\" \"backend\\\\server.py\")",
+      "Bash(curl -s http://localhost:7860/api/status)",
+      "Bash(curl -s -X POST http://localhost:7860/api/warmup)",
+      "Bash(git init *)",
+      "Bash(git config *)",
+      "Bash(git add *)",
+      "Bash(git rm *)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(git remote *)"
+    ]
+  }
+}

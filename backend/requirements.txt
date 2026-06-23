@@ -1,0 +1,19 @@
+# Install torch first with CUDA wheels:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# Then:
+#   pip install -r backend/requirements.txt
+diffusers==0.27.2
+transformers==4.38.2
+accelerate==0.27.2
+peft==0.10.0
+safetensors
+huggingface_hub<0.26
+opencv-contrib-python
+pillow>=10.2
+einops
+numpy<2
+protobuf==3.20.3
+fastapi
+uvicorn[standard]
+python-multipart
+requests
