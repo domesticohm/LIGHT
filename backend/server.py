@@ -66,6 +66,35 @@ def _depth():
     return d
 
 
+def _seg():
+    import seg_engine as s
+    return s
+
+
+@app.post("/api/segment")
+def api_segment(image: UploadFile = File(...)):
+    """Detect the object and remove the background. Returns an RGBA cutout PNG."""
+    try:
+        pil = Image.open(io.BytesIO(image.file.read()))
+    except Exception:
+        raise HTTPException(400, "Could not read uploaded image")
+    with _infer_lock:
+        try:
+            cut = _seg().segment(pil)
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(500, f"Segmentation failed: {e!r}")
+    return _img_to_png_response(cut)
+
+
+@app.get("/api/seg_status")
+def api_seg_status():
+    try:
+        return _seg().status()
+    except Exception as e:
+        return {"loaded": False, "error": repr(e)}
+
+
 @app.post("/api/depth")
 def api_depth(image: UploadFile = File(...)):
     """Estimate a depth map (MiDaS) used by the 3D studio for real geometry."""

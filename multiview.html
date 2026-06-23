@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Relight Studio · Multi-View — 3 photos + model → aligned 3D</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{--bg:#0e0f13;--panel:#171922;--panel2:#1f2230;--line:#2a2e3d;--txt:#e7e9f0;--muted:#9aa0b5;--accent:#ffcf6b;--good:#5fd28a;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:"Segoe UI",system-ui,Arial,sans-serif;background:var(--bg);color:var(--txt);overflow:hidden}
+  #app{display:flex;height:100vh;width:100vw}
+  #stage{flex:1;display:flex;flex-direction:column;min-width:0;background:radial-gradient(1200px 600px at 50% -10%,#1b1e2a,#0e0f13 60%)}
+  #toolbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);background:#0b0c10;flex-wrap:wrap}
+  #toolbar h1{font-size:14px;margin:0;font-weight:600}
+  #toolbar .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:2px 8px;border-radius:20px}
+  #toolbar .spacer{flex:1}
+  .btn{background:var(--panel2);color:var(--txt);border:1px solid var(--line);padding:7px 11px;border-radius:8px;cursor:pointer;font-size:13px}
+  .btn:hover{border-color:#3a3f54;background:#262a3a}
+  .btn.primary{background:linear-gradient(180deg,#ffd97a,#f4b942);color:#241c05;border:none;font-weight:600}
+  a.btn{text-decoration:none}
+  #canvasWrap{flex:1;position:relative;overflow:hidden}
+  #c{display:block;width:100%;height:100%}
+  #hud{position:absolute;left:14px;bottom:64px;font-size:11px;color:var(--muted);background:rgba(0,0,0,.4);padding:3px 8px;border-radius:6px}
+  #views{position:absolute;left:12px;bottom:12px;display:flex;gap:10px}
+  .vthumb{width:78px;height:78px;border:1px solid var(--line);border-radius:8px;background:#0b0c10 center/cover no-repeat;position:relative;cursor:pointer;overflow:hidden}
+  .vthumb .lab{position:absolute;left:0;right:0;bottom:0;font-size:10px;background:rgba(0,0,0,.6);text-align:center;padding:1px}
+  .vthumb.empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center}
+  .vthumb .iou{position:absolute;top:2px;right:3px;font-size:10px;color:var(--good)}
+  #panel{width:340px;flex:none;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column}
+  #panel .scroll{overflow-y:auto;padding:13px 13px 50px}
+  .section{border:1px solid var(--line);background:var(--panel2);border-radius:10px;margin-bottom:11px}
+  .section>.head{display:flex;align-items:center;gap:8px;padding:9px 11px;cursor:pointer;user-select:none}
+  .section>.head .ttl{font-size:13px;font-weight:600;flex:1}
+  .section.collapsed .body{display:none}.section.collapsed .chev{transform:rotate(-90deg)}
+  .chev{color:var(--muted)}
+  .body{padding:6px 11px 11px}
+  .row{margin:9px 0}
+  .row label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px}
+  .row label .val{color:var(--txt)}
+  input[type=range]{width:100%;accent-color:var(--accent);height:4px}
+  .compass{width:110px;height:110px;margin:6px auto;position:relative;border-radius:50%;background:radial-gradient(circle at 50% 40%,#262a3a,#12141d);border:1px solid var(--line);cursor:crosshair}
+  .compass .handle{position:absolute;width:13px;height:13px;border-radius:50%;background:var(--accent);box-shadow:0 0 9px var(--accent);transform:translate(-50%,-50%);pointer-events:none}
+  .toprow{display:flex;gap:7px;flex-wrap:wrap}
+  .mini{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:6px;cursor:pointer;font-size:12px;padding:5px 8px}
+  .mini:hover{color:var(--txt)} .mini.active{border-color:var(--accent);color:var(--accent)}
+  .small{font-size:11px;color:var(--muted);line-height:1.5}
+  .sw{display:flex;align-items:center;gap:8px}
+  input[type=color]{width:32px;height:24px;border:1px solid var(--line);background:none;border-radius:6px;padding:0;cursor:pointer}
+  ::-webkit-scrollbar{width:10px}::-webkit-scrollbar-thumb{background:#2a2e3d;border-radius:6px}
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <div id="toolbar">
+      <h1>◐ Multi-View Align</h1><span class="tag">3 photos + model → aligned 3D</span>
+      <div class="spacer"></div>
+      <a class="btn" href="/">2D</a><a class="btn" href="/studio3d.html">3D</a>
+      <button class="btn" id="bModel">Model…</button>
+      <button class="btn primary" id="bAlign">✨ Analyze &amp; Align</button>
+      <button class="btn" id="bTurn">Turntable</button>
+      <button class="btn" id="bSave">Save PNG</button>
+      <input type="file" id="fModel" accept=".glb,.gltf,.obj" style="display:none">
+      <input type="file" id="fView" accept="image/*" style="display:none">
+    </div>
+    <div id="canvasWrap">
+      <canvas id="c"></canvas>
+      <div id="hud">Upload a 3D model and 3 photos (different angles) of the same object.</div>
+      <div id="views"></div>
+    </div>
+  </div>
+
+  <div id="panel"><div class="scroll">
+    <div class="section" id="secStat">
+      <div class="head"><span class="ttl">Pipeline</span><span class="chev">▾</span></div>
+      <div class="body"><div class="small" id="stat">1. Add model + 3 photos · 2. Analyze &amp; Align · 3. Relight</div>
+        <div class="row"><label class="sw" style="cursor:pointer"><input type="checkbox" id="projOn" checked> <span>Projected photo texture</span></label></div>
+        <div class="small" id="depthSrc">Geometry: your 3D model · Texture: projected from aligned photos</div>
+      </div>
+    </div>
+
+    <div class="section" id="secLight">
+      <div class="head"><span class="ttl">Light Direction</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="compass" id="compass"><div class="handle"></div></div>
+        <div class="row"><label>Azimuth <span class="val" id="azV">40°</span></label><input type="range" id="az" min="0" max="360" value="40"></div>
+        <div class="row"><label>Elevation <span class="val" id="elV">35°</span></label><input type="range" id="el" min="-15" max="90" value="35"></div>
+        <div class="row"><label>Key intensity <span class="val" id="keyV">1.50</span></label><input type="range" id="key" min="0" max="4" step="0.01" value="1.5"></div>
+        <div class="row"><label>Color temperature <span class="val" id="tempV">5500K</span></label><input type="range" id="temp" min="2000" max="12000" step="100" value="5500"></div>
+        <button class="mini" id="bEst">Estimate from photos</button>
+      </div>
+    </div>
+
+    <div class="section" id="secShadow">
+      <div class="head"><span class="ttl">Shadows &amp; World</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="row"><label>Shadow strength <span class="val" id="shStrV">0.85</span></label><input type="range" id="shStr" min="0" max="1" step="0.01" value="0.85"></div>
+        <div class="row"><label>Soft light <span class="val" id="softV">3</span></label><input type="range" id="soft" min="0" max="25" step="0.5" value="3"></div>
+        <div class="row"><label>Night ⟷ Day <span class="val" id="dnV">0.65</span></label><input type="range" id="dn" min="0" max="1" step="0.01" value="0.65"></div>
+        <div class="row"><label>Ambient <span class="val" id="ambV">0.7</span></label><input type="range" id="amb" min="0" max="2" step="0.01" value="0.7"></div>
+        <div class="row"><label>Exposure <span class="val" id="expV">1.0</span></label><input type="range" id="exp" min="0.3" max="2" step="0.01" value="1.0"></div>
+        <div class="row"><label class="sw" style="cursor:pointer"><input type="checkbox" id="ground" checked> <span>Shadow-catcher floor</span></label></div>
+        <div class="row"><label class="sw" style="cursor:pointer"><input type="checkbox" id="noir"> <span>Film noir look</span></label></div>
+      </div>
+    </div>
+
+    <div class="section" id="secCam">
+      <div class="head"><span class="ttl">Camera</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="row"><label>Focal length <span class="val" id="focV">50mm</span></label><input type="range" id="foc" min="16" max="200" step="1" value="50"></div>
+        <button class="mini" id="bFront">Front view</button>
+        <div class="small">Drag to orbit the aligned object. Focal length is also used during alignment.</div>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const $=id=>document.getElementById(id);
+const lerp=THREE.MathUtils.lerp;
+function kelvinToRGB(k){const t=k/100;let r,g,b;r=t<=66?255:329.7*Math.pow(t-60,-0.1332);g=t<=66?99.47*Math.log(t)-161.12:288.12*Math.pow(t-60,-0.0755);b=t>=66?255:(t<=19?0:138.52*Math.log(t-10)-305.04);const cl=v=>Math.max(0,Math.min(255,v))/255;return new THREE.Color(cl(r),cl(g),cl(b));}
+
+// ---------- renderer / scene ----------
+const canvas=$('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.VSMShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.0;
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0b0d12);
+const camera=new THREE.PerspectiveCamera(40,16/9,0.01,500); camera.position.set(0,0,6);
+const orbit=new OrbitControls(camera,canvas); orbit.enableDamping=true; orbit.target.set(0,0,0);
+
+const hemi=new THREE.HemisphereLight(0xbfd6ff,0x202028,0.7); scene.add(hemi);
+const ambient=new THREE.AmbientLight(0xffffff,0.15); scene.add(ambient);
+const key=new THREE.DirectionalLight(0xffffff,1.5);
+key.castShadow=true; key.shadow.mapSize.set(2048,2048);
+key.shadow.bias=-0.0008; key.shadow.normalBias=0.02; key.shadow.radius=3; key.shadow.blurSamples=25;
+key.shadow.camera.near=0.1; key.shadow.camera.far=60;
+const sc=key.shadow.camera; sc.left=-4;sc.right=4;sc.top=4;sc.bottom=-4; sc.updateProjectionMatrix();
+scene.add(key); scene.add(key.target);
+
+let ground=null;
+function buildGround(){
+  if(ground){scene.remove(ground);ground.geometry.dispose();ground.material.dispose();}
+  ground=new THREE.Mesh(new THREE.PlaneGeometry(60,60), new THREE.ShadowMaterial({opacity:0.55}));
+  ground.rotation.x=-Math.PI/2; ground.position.y=-2.05; ground.receiveShadow=true;
+  ground.visible=$('ground').checked; scene.add(ground);
+}
+buildGround();
+
+// ---------- projective-texture material ----------
+const projUniforms={
+  uProjOn:{value:1.0}, uProjCount:{value:0},
+  uProjMat:{value:[new THREE.Matrix4(),new THREE.Matrix4(),new THREE.Matrix4()]},
+  uProjPos:{value:[new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()]},
+  uProjTex0:{value:null}, uProjTex1:{value:null}, uProjTex2:{value:null}, uProjFlip:{value:1.0}
+};
+function makeModelMaterial(){
+  const m=new THREE.MeshStandardMaterial({color:0xb8b8b8, roughness:0.7, metalness:0.0});
+  m.onBeforeCompile=(sh)=>{
+    Object.assign(sh.uniforms, projUniforms);
+    // capture LOCAL position + normal so projected texture stays locked to the model
+    sh.vertexShader='varying vec3 vWPos; varying vec3 vWNrm;\n'+sh.vertexShader
+      .replace('#include <beginnormal_vertex>','#include <beginnormal_vertex>\n vWNrm=objectNormal;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\n vWPos=transformed;');
+    sh.fragmentShader='varying vec3 vWPos; varying vec3 vWNrm;\nuniform float uProjOn,uProjFlip; uniform int uProjCount;\nuniform mat4 uProjMat[3]; uniform vec3 uProjPos[3]; uniform sampler2D uProjTex0,uProjTex1,uProjTex2;\n'+sh.fragmentShader;
+    const inject=`#include <map_fragment>
+      if(uProjOn>0.5 && uProjCount>0){
+        vec3 nrm=normalize(vWNrm); vec3 acc=vec3(0.0); float wsum=0.0;
+        for(int i=0;i<3;i++){ if(i>=uProjCount) break;
+          vec4 pc=uProjMat[i]*vec4(vWPos,1.0);
+          if(pc.w>0.0){ vec2 uv=pc.xy/pc.w*0.5+0.5; uv.y=mix(uv.y,1.0-uv.y,step(0.5,uProjFlip));
+            if(uv.x>0.002&&uv.x<0.998&&uv.y>0.002&&uv.y<0.998){
+              float f=dot(nrm, normalize(uProjPos[i]-vWPos));
+              if(f>0.04){ vec3 c; if(i==0)c=texture2D(uProjTex0,uv).rgb; else if(i==1)c=texture2D(uProjTex1,uv).rgb; else c=texture2D(uProjTex2,uv).rgb;
+                float w=f*f; acc+=c*w; wsum+=w; } } } }
+        if(wsum>0.0){ diffuseColor.rgb=acc/wsum; } else { diffuseColor.rgb=vec3(0.45); }
+      }`;
+    sh.fragmentShader=sh.fragmentShader.replace('#include <map_fragment>', inject);
+  };
+  m.customProgramCacheKey=()=>'projmat';
+  return m;
+}
+const modelMat=makeModelMaterial();
+
+// ---------- post ----------
+const NoirShader={uniforms:{tDiffuse:{value:null},amount:{value:1.0},contrast:{value:1.3},vignette:{value:0.55},grain:{value:0.06},time:{value:0},on:{value:0}},
+  vertexShader:`varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`uniform sampler2D tDiffuse;uniform float amount,contrast,vignette,grain,time,on;varying vec2 vUv;
+   float rand(vec2 c){return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453);}
+   void main(){vec4 c=texture2D(tDiffuse,vUv);if(on<0.5){gl_FragColor=c;return;}
+   float l=dot(c.rgb,vec3(0.299,0.587,0.114));vec3 col=mix(c.rgb,vec3(l),amount);col=(col-0.5)*contrast+0.5;
+   float d=distance(vUv,vec2(0.5));col*=1.0-vignette*smoothstep(0.25,0.85,d);col+=(rand(vUv+fract(time))-0.5)*grain;
+   gl_FragColor=vec4(clamp(col,0.0,1.0),c.a);}`};
+const composer=new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene,camera));
+const bloom=new UnrealBloomPass(new THREE.Vector2(1,1),0.08,0.5,0.85); composer.addPass(bloom);
+const noir=new ShaderPass(NoirShader); composer.addPass(noir);
+composer.addPass(new OutputPass());
+function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setSize(w,h,false);composer.setSize(w,h);bloom.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}
+new ResizeObserver(resize).observe(canvas);
+
+// ---------- model + views ----------
+let model=null, canonicalInv=new THREE.Matrix4(), canonicalLocal=new THREE.Matrix4();
+const views=[null,null,null];   // {file, tex, img, aspect, sol}
+let activeSlot=0;
+const hud=$('hud');
+
+function setModelMaterial(m){ m.traverse(n=>{ if(n.isMesh){ n.material=modelMat; n.castShadow=true; n.receiveShadow=true; } }); }
+function loadModel(file){
+  const url=URL.createObjectURL(file), ext=file.name.split('.').pop().toLowerCase();
+  const onLoad=obj=>{
+    if(model){scene.remove(model);} model=obj.scene||obj;
+    const box=new THREE.Box3().setFromObject(model), size=box.getSize(new THREE.Vector3()), ctr=box.getCenter(new THREE.Vector3());
+    const s=2.0/Math.max(size.x,size.y,size.z||1);
+    model.scale.setScalar(s); model.position.sub(ctr.multiplyScalar(s));
+    setModelMaterial(model); scene.add(model); model.updateMatrixWorld(true);
+    canonicalLocal.copy(model.matrix); canonicalInv.copy(model.matrixWorld).invert();
+    hud.textContent='Model loaded. Add 3 photos, then ✨ Analyze & Align.';
+    $('stat').textContent='Model ✓ · add photos';
+  };
+  if(ext==='obj') new OBJLoader().load(url,onLoad,undefined,e=>alert('OBJ failed: '+e));
+  else new GLTFLoader().load(url,onLoad,undefined,e=>alert('Model load failed: '+e));
+}
+
+function thumbs(){
+  const el=$('views'); el.innerHTML='';
+  for(let i=0;i<3;i++){
+    const d=document.createElement('div'); d.className='vthumb'+(views[i]?'':' empty');
+    if(views[i]){ d.style.backgroundImage=`url(${views[i].url})`; const lab=document.createElement('div'); lab.className='lab'; lab.textContent='View '+(i+1); d.appendChild(lab);
+      if(views[i].sol){const q=document.createElement('div');q.className='iou';q.textContent='IoU '+(views[i].sol.iou*100|0)+'%';d.appendChild(q);} }
+    else d.textContent='+ View '+(i+1);
+    d.onclick=()=>{ activeSlot=i; $('fView').click(); };
+    el.appendChild(d);
+  }
+}
+thumbs();
+
+async function loadView(i,file){
+  hud.textContent='Detecting object in view '+(i+1)+'…';
+  const url=URL.createObjectURL(file);
+  // segment (background removal) -> RGBA cutout
+  let cutImg, ok=false;
+  try{
+    const fd=new FormData(); fd.append('image',file);
+    const r=await fetch('/api/segment',{method:'POST',body:fd});
+    if(r.ok){ const b=await r.blob(); cutImg=await blobToImage(b); ok=true; }
+  }catch(e){}
+  if(!ok){ cutImg=await blobToImage(file); }
+  const tex=new THREE.Texture(cutImg); tex.colorSpace=THREE.SRGBColorSpace; tex.needsUpdate=true;
+  views[i]={file,url,img:cutImg,tex,aspect:cutImg.naturalWidth/cutImg.naturalHeight,sol:null};
+  thumbs();
+  hud.textContent='View '+(i+1)+' ready ('+(ok?'background removed':'no backend — raw')+'). '+(views.filter(Boolean).length)+'/3 photos.';
+}
+function blobToImage(b){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=URL.createObjectURL(b);});}
+
+// ---------- silhouette alignment ----------
+const silMat=new THREE.MeshBasicMaterial({color:0xffffff});
+function focalFov(){return 2*Math.atan(24/(2*parseFloat($('foc').value)))*180/Math.PI;}
+
+function maskGrid(view,W,H){
+  const cv=document.createElement('canvas');cv.width=W;cv.height=H;const x=cv.getContext('2d');
+  x.drawImage(view.img,0,0,W,H); const d=x.getImageData(0,0,W,H).data;
+  const m=new Uint8Array(W*H); let area=0,cx=0,cy=0;
+  for(let p=0,i=0;p<W*H;p++,i+=4){ const a=d[i+3]; if(a>110){m[p]=1;area++;cx+=p%W;cy+=(p/W)|0;} }
+  return {m,W,H,area,cx:area?cx/area:W/2,cy:area?cy/area:H/2};
+}
+function renderSil(rt,rcam,W,H){
+  const prevBg=scene.background; scene.background=null;
+  const hidden=[]; scene.traverse(n=>{if(n.isMesh&&!isChild(n)){hidden.push([n,n.visible]);n.visible=false;}});
+  model.traverse(n=>{if(n.isMesh){n.userData._m=n.material;n.material=silMat;}});
+  const pt=renderer.getRenderTarget(); renderer.setRenderTarget(rt); renderer.setClearColor(0x000000,1); renderer.clear();
+  renderer.render(scene,rcam);
+  const buf=new Uint8Array(W*H*4); renderer.readRenderTargetPixels(rt,0,0,W,H,buf);
+  renderer.setRenderTarget(pt); scene.background=prevBg;
+  model.traverse(n=>{if(n.isMesh)n.material=n.userData._m;}); hidden.forEach(([n,v])=>n.visible=v);
+  // coverage (RT bottom-up): map to top-down grid coords used by maskGrid
+  const m=new Uint8Array(W*H); let area=0,cx=0,cy=0;
+  for(let y=0;y<H;y++){const sy=H-1-y;for(let x=0;x<W;x++){ if(buf[(sy*W+x)*4]>50){const p=y*W+x;m[p]=1;area++;cx+=x;cy+=y;}}}
+  return {m,area,cx:area?cx/area:W/2,cy:area?cy/area:H/2};
+}
+function isChild(n){let p=n;while(p){if(p===model)return true;p=p.parent;}return false;}
+function iou(a,b){let inter=0,uni=0;for(let p=0;p<a.length;p++){const x=a[p],y=b[p];if(x|y)uni++;if(x&y)inter++;}return uni?inter/uni:0;}
+
+async function alignView(i){
+  const v=views[i]; if(!v||!model) return;
+  const W=128, H=Math.max(8,Math.round(128*v.img.naturalHeight/v.img.naturalWidth));
+  const rt=new THREE.WebGLRenderTarget(W,H,{depthBuffer:true});
+  const fov=focalFov(), D=4;
+  const rcam=new THREE.PerspectiveCamera(fov, v.aspect, 0.01, 500);
+  rcam.position.set(0,0,D); rcam.lookAt(0,0,0); rcam.updateMatrixWorld(true);
+  const halfH=D*Math.tan(fov*Math.PI/360);
+  const target=maskGrid(v,W,H);
+  if(target.area<20){ rt.dispose(); v.sol={iou:0}; return; }
+  // start from canonical
+  function setEuler(yaw,pitch,roll){ model.rotation.set(pitch,yaw,roll); model.position.set(0,0,0); model.scale.setScalar(model.userData.baseScale||model.scale.x); }
+  if(model.userData.baseScale==null) model.userData.baseScale=model.scale.x;
+  function autofit(){   // cheap: one measure, apply scale+translate, one final measure for IoU
+    model.updateMatrixWorld(true);
+    let s=renderSil(rt,rcam,W,H); if(s.area<5)return s;
+    const f=Math.sqrt(target.area/s.area); model.scale.multiplyScalar(THREE.MathUtils.clamp(f,0.3,3.0));
+    const dx=((target.cx-s.cx)/W*2)*halfH*v.aspect, dy=-((target.cy-s.cy)/H*2)*halfH;
+    model.position.x+=dx; model.position.y+=dy;
+    model.updateMatrixWorld(true); return renderSil(rt,rcam,W,H);
+  }
+  let best={iou:-1};
+  async function trySet(yaw,pitch,roll){
+    setEuler(yaw,pitch,roll); const s=autofit(); const sc=iou(s.m,target.m);
+    if(sc>best.iou){ best={iou:sc, pos:model.position.clone(), quat:model.quaternion.clone(), scale:model.scale.clone()}; }
+  }
+  const R=Math.PI/180; let n=0;
+  const tick=async()=>{ if((++n%12)===0){hud.textContent=`Aligning view ${i+1}… ${n} poses (best IoU ${(best.iou*100|0)}%)`; await new Promise(rs=>setTimeout(rs)); } };
+  // coarse: yaw all-around + a few pitches (roll handled in refine)
+  for(let y=0;y<360;y+=45)for(let p=-45;p<=45;p+=45){ await trySet(y*R,p*R,0); await tick(); }
+  // refine around best, now including roll
+  const by=best.quat? new THREE.Euler().setFromQuaternion(best.quat):new THREE.Euler();
+  for(let dy=-30;dy<=30;dy+=15)for(let dp=-30;dp<=30;dp+=15)for(let dr=-20;dr<=20;dr+=20){ await trySet(by.y+dy*R,by.x+dp*R,by.z+dr*R); await tick(); }
+  // apply best, compute projector matrices for the canonical model
+  model.position.copy(best.pos); model.quaternion.copy(best.quat); model.scale.copy(best.scale); model.updateMatrixWorld(true);
+  const Mi=model.matrixWorld.clone();
+  // local-space projector: maps model LOCAL coords -> this photo's clip space
+  const viewMat=new THREE.Matrix4().multiplyMatrices(rcam.matrixWorldInverse,Mi);
+  const projMat=new THREE.Matrix4().multiplyMatrices(rcam.projectionMatrix,viewMat);
+  const projPos=new THREE.Vector3().setFromMatrixPosition(viewMat.clone().invert());
+  v.sol={iou:best.iou, projMat, projPos};
+  rt.dispose();
+}
+
+async function alignAll(){
+  if(!model){alert('Add a 3D model first.');return;}
+  const have=views.filter(Boolean); if(have.length===0){alert('Add at least one photo.');return;}
+  $('bAlign').disabled=true;
+  for(let i=0;i<3;i++){ if(views[i]) await alignView(i); }
+  // restore model to canonical for display
+  model.matrix.copy(canonicalLocal); model.matrix.decompose(model.position,model.quaternion,model.scale); model.updateMatrixWorld(true);
+  // upload projector uniforms
+  let count=0; const order=[0,1,2].filter(i=>views[i]&&views[i].sol&&views[i].sol.projMat);
+  order.forEach((idx,slot)=>{ projUniforms.uProjMat.value[slot].copy(views[idx].sol.projMat); projUniforms.uProjPos.value[slot].copy(views[idx].sol.projPos);
+    if(slot===0)projUniforms.uProjTex0.value=views[idx].tex; if(slot===1)projUniforms.uProjTex1.value=views[idx].tex; if(slot===2)projUniforms.uProjTex2.value=views[idx].tex; count++; });
+  projUniforms.uProjCount.value=count;
+  thumbs();
+  const avg=order.length?Math.round(order.reduce((a,i)=>a+views[i].sol.iou,0)/order.length*100):0;
+  hud.textContent=`Aligned ${count} view(s). Mean silhouette IoU ${avg}%. Orbit to inspect; relight on the right.`;
+  $('stat').textContent=`Aligned ✓ (IoU ${avg}%)`;
+  estimateLight();
+  $('bAlign').disabled=false;
+}
+
+// ---------- estimate light direction from photos ----------
+function estimateLight(){
+  const v=views.find(x=>x&&x.sol); if(!v) return;
+  const W=96,H=Math.max(8,Math.round(96*v.img.naturalHeight/v.img.naturalWidth));
+  const cv=document.createElement('canvas');cv.width=W;cv.height=H;const x=cv.getContext('2d');
+  x.drawImage(v.img,0,0,W,H); const d=x.getImageData(0,0,W,H).data;
+  let mcx=0,mcy=0,ma=0, lcx=0,lcy=0,lw=0;
+  for(let p=0,i=0;p<W*H;p++,i+=4){ if(d[i+3]>110){ const X=p%W,Y=(p/W)|0; ma++;mcx+=X;mcy+=Y; const L=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])/255; lw+=L;lcx+=X*L;lcy+=Y*L; } }
+  if(!ma||!lw) return; mcx/=ma;mcy/=ma; lcx/=lw;lcy/=lw;
+  const vx=(lcx-mcx)/W, vy=(mcy-lcy)/H; // bright offset (y up)
+  let az=Math.atan2(vx,Math.max(0.001,Math.hypot(vx,vy)))*180/Math.PI; // toward bright side
+  az=(Math.atan2(vx, 0.0001+vy)*180/Math.PI+360)%360;
+  const el=THREE.MathUtils.clamp(35+vy*120,5,80);
+  $('az').value=Math.round(az); $('el').value=Math.round(el);
+  $('az').dispatchEvent(new Event('input')); $('el').dispatchEvent(new Event('input'));
+  hud.textContent+=' · Estimated key from photo brightness.';
+}
+
+// ---------- lighting controls ----------
+function updateLightDir(){const az=parseFloat($('az').value)*Math.PI/180,el=parseFloat($('el').value)*Math.PI/180,R=10;
+  key.position.set(Math.cos(el)*Math.sin(az)*R,Math.sin(el)*R,Math.cos(el)*Math.cos(az)*R); key.target.position.set(0,0,0); placeHandle();}
+function applyWorld(){const dn=parseFloat($('dn').value),am=parseFloat($('amb').value);
+  scene.background.copy(new THREE.Color(0x05070d)).lerp(new THREE.Color(0x95b8e6),dn);
+  hemi.color.copy(new THREE.Color(0x24304a)).lerp(new THREE.Color(0xbfd6ff),dn); hemi.groundColor.set(0x14161d);
+  hemi.intensity=lerp(0.06,0.75,dn)*am; ambient.intensity=lerp(0.02,0.18,dn)*am;
+  key.intensity=lerp(0.7,1.6,dn)*parseFloat($('key').value);}
+function applyKeyColor(){key.color.copy(kelvinToRGB(parseFloat($('temp').value)));}
+function applyShadows(){key.shadow.intensity=parseFloat($('shStr').value);key.shadow.radius=parseFloat($('soft').value);key.shadow.needsUpdate=true;}
+function setFocal(mm){const fovV=2*Math.atan(24/(2*mm))*180/Math.PI;camera.fov=fovV;const dist=4.5;const dir=camera.position.clone().sub(orbit.target);if(dir.lengthSq()<1e-6)dir.set(0,0,1);dir.normalize().multiplyScalar(dist);camera.position.copy(orbit.target).add(dir);camera.updateProjectionMatrix();}
+function frontView(){orbit.target.set(0,0,0);camera.position.set(0,0,4.5);camera.updateProjectionMatrix();}
+
+const compass=$('compass');
+function placeHandle(){const az=parseFloat($('az').value)*Math.PI/180,el=parseFloat($('el').value);const dist=(1-Math.max(0,el)/90),R=48*dist;compass.querySelector('.handle').style.left=(55+Math.sin(az)*R)+'px';compass.querySelector('.handle').style.top=(55-Math.cos(az)*R)+'px';}
+function compassEv(ev){const r=compass.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;const xx=(ev.touches?ev.touches[0].clientX:ev.clientX)-cx,yy=(ev.touches?ev.touches[0].clientY:ev.clientY)-cy;let a=Math.atan2(xx,-yy)*180/Math.PI;if(a<0)a+=360;$('az').value=Math.round(a);$('azV').textContent=Math.round(a)+'°';const dd=Math.min(1,Math.hypot(xx,yy)/(r.width/2));$('el').value=Math.round((1-dd)*90);$('elV').textContent=$('el').value+'°';updateLightDir();}
+let cdrag=false;compass.addEventListener('mousedown',e=>{cdrag=true;compassEv(e);});window.addEventListener('mousemove',e=>{if(cdrag)compassEv(e);});window.addEventListener('mouseup',()=>cdrag=false);
+
+function bind(id,vid,fmt,fn){const el=$(id),v=$(vid);const run=()=>{if(v)v.textContent=fmt(parseFloat(el.value));fn&&fn();};el.addEventListener('input',run);run();}
+bind('az','azV',v=>v+'°',updateLightDir);bind('el','elV',v=>v+'°',updateLightDir);
+bind('key','keyV',v=>v.toFixed(2),applyWorld);bind('temp','tempV',v=>v+'K',applyKeyColor);
+bind('shStr','shStrV',v=>v.toFixed(2),applyShadows);bind('soft','softV',v=>v.toFixed(1),applyShadows);
+bind('dn','dnV',v=>v.toFixed(2),applyWorld);bind('amb','ambV',v=>v.toFixed(2),applyWorld);
+bind('exp','expV',v=>v.toFixed(2),()=>renderer.toneMappingExposure=parseFloat($('exp').value));
+bind('foc','focV',v=>v+'mm',()=>setFocal(parseFloat($('foc').value)));
+$('ground').addEventListener('change',()=>{if(ground)ground.visible=$('ground').checked;});
+$('noir').addEventListener('change',()=>noir.uniforms.on.value=$('noir').checked?1:0);
+$('projOn').addEventListener('change',()=>projUniforms.uProjOn.value=$('projOn').checked?1:0);
+$('bEst').onclick=estimateLight;
+
+// toolbar
+$('bModel').onclick=()=>$('fModel').click();
+$('fModel').onchange=e=>{const f=e.target.files[0];if(f)loadModel(f);};
+$('fView').onchange=e=>{const f=e.target.files[0];if(f)loadView(activeSlot,f);};
+$('bAlign').onclick=alignAll;
+$('bFront').onclick=frontView;
+let turn=false; $('bTurn').onclick=()=>{turn=!turn;$('bTurn').classList.toggle('active',turn);};
+$('bSave').onclick=()=>{composer.render();canvas.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='multiview-relit.png';a.click();},'image/png');};
+document.querySelectorAll('.section .head').forEach(h=>h.addEventListener('click',e=>{if(e.target.closest('button')||e.target.closest('input'))return;h.parentElement.classList.toggle('collapsed');}));
+
+// init
+updateLightDir();applyWorld();applyKeyColor();applyShadows();resize();frontView();
+const t0=performance.now();
+function animate(){requestAnimationFrame(animate);noir.uniforms.time.value=(performance.now()-t0)/1000;if(turn&&model){model.rotation.y+=0.01;}orbit.update();composer.render();}
+animate();
+window.__mv={get model(){return model;},views,alignAll,setSlot:i=>{activeSlot=i;}};
+</script>
+</body>
+</html>

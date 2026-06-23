@@ -22,6 +22,14 @@ A local **virtual photo-lighting studio** with two engines:
    instead of estimated depth. The reference model is used **only** for depth — it never
    appears in the preview or saved output.
 
+4. **🧩 Multi-View Align** — upload **3 photos of the same object at different angles**
+   plus a **3D model** of it. The app **detects the object and removes the background**
+   in each photo (RMBG), then **automatically registers the model** to each view by
+   silhouette optimization (auto resize / position / orient). The 3 aligned views are
+   **projected onto the model** so it looks like the real object in 3D, the **real
+   light direction is estimated** from the photos (then fully adjustable), and the
+   object casts **real shadows** on a ground catcher. Orbit / turntable + export.
+
 Everything can run **100% offline** (after the one-time model download).
 
 ---
