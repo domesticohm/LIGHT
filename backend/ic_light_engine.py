@@ -306,7 +306,7 @@ def _process(input_fg, prompt, w, h, num_samples, seed, steps, a_prompt, n_promp
 @torch.inference_mode()
 def relight(image: Image.Image, prompt: str, bg_source: str = "None",
             width: int = 512, height: int = 640, steps: int = 25, cfg: float = 2.0,
-            seed: int = 12345, highres_scale: float = 1.5, highres_denoise: float = 0.5,
+            seed: int = 12345, highres_scale: float = 1.0, highres_denoise: float = 0.5,
             lowres_denoise: float = 0.9,
             a_prompt: str = "best quality",
             n_prompt: str = "lowres, bad anatomy, bad hands, cropped, worst quality"):

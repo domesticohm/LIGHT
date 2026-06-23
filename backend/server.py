@@ -78,7 +78,7 @@ def api_relight(
     steps: int = Form(25),
     cfg: float = Form(2.0),
     seed: int = Form(12345),
-    highres_scale: float = Form(1.5),
+    highres_scale: float = Form(1.0),
     highres_denoise: float = Form(0.5),
     a_prompt: str = Form("best quality"),
     n_prompt: str = Form("lowres, bad anatomy, bad hands, cropped, worst quality"),

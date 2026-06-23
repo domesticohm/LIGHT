@@ -17,7 +17,16 @@
       "Bash(git add *)",
       "Bash(git rm *)",
       "Bash(git commit -q -m ' *)",
-      "Bash(git remote *)"
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(time curl -s -X POST http://localhost:7860/api/relight -F \"image=@_ref_iclight/imgs/i3.png\" -F \"prompt=dramatic cinematic sunset rim light, soft volumetric shadows, hyperrealistic\" -F \"bg_source=Left Light\" -F \"steps=20\" -F \"width=512\" -F \"height=640\" -o \"scratch_out.png\" -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(file scratch_out.png)",
+      "Bash(python -c \"from PIL import Image; im=Image.open\\('scratch_out.png'\\); print\\('OK image', im.size, im.mode\\)\")",
+      "Bash(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader)",
+      "Bash(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader)",
+      "Bash(.venv/Scripts/python.exe -c \"from PIL import Image; im=Image.open\\('scratch_out.png'\\); print\\('VALID relit image:', im.size, im.mode\\)\")",
+      "Bash(nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader)",
+      "Bash(rm -f scratch_out.png scratch_out2.png)"
     ]
   }
 }
