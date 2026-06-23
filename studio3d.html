@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Relight Studio 3D — Real Shadows · Virtual Lighting</title>
+<link rel="icon" href="data:,">
+
+<style>
+  :root{--bg:#0e0f13;--panel:#171922;--panel2:#1f2230;--line:#2a2e3d;--txt:#e7e9f0;--muted:#9aa0b5;--accent:#ffcf6b;--accent2:#6bb8ff;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:"Segoe UI",system-ui,Arial,sans-serif;background:var(--bg);color:var(--txt);overflow:hidden}
+  #app{display:flex;height:100vh;width:100vw}
+  #stage{flex:1;display:flex;flex-direction:column;min-width:0;background:radial-gradient(1200px 600px at 50% -10%,#1b1e2a,#0e0f13 60%)}
+  #toolbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:#0b0c10}
+  #toolbar h1{font-size:15px;margin:0;letter-spacing:.5px;font-weight:600}
+  #toolbar .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:2px 8px;border-radius:20px}
+  #toolbar .spacer{flex:1}
+  .btn{background:var(--panel2);color:var(--txt);border:1px solid var(--line);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px}
+  .btn:hover{border-color:#3a3f54;background:#262a3a}
+  .btn.primary{background:linear-gradient(180deg,#ffd97a,#f4b942);color:#241c05;border:none;font-weight:600}
+  a.btn{text-decoration:none;display:inline-block}
+  #canvasWrap{flex:1;position:relative;overflow:hidden}
+  #c{display:block;width:100%;height:100%}
+  #drop{position:absolute;inset:24px;border:2px dashed var(--line);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);gap:10px;text-align:center;pointer-events:none}
+  #drop.hidden{display:none}
+  #drop b{color:var(--txt);font-size:18px}
+  #hud{position:absolute;left:14px;bottom:10px;font-size:11px;color:var(--muted)}
+  #panel{width:360px;flex:none;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column}
+  #panel .scroll{overflow-y:auto;padding:14px 14px 50px}
+  .section{border:1px solid var(--line);background:var(--panel2);border-radius:10px;margin-bottom:12px}
+  .section>.head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none}
+  .section>.head .ttl{font-size:13px;font-weight:600;flex:1}
+  .section>.head .chev{color:var(--muted)}
+  .section.collapsed .body{display:none}
+  .section.collapsed .chev{transform:rotate(-90deg)}
+  .body{padding:6px 12px 12px}
+  .row{margin:10px 0}
+  .row label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px}
+  .row label .val{color:var(--txt);font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--accent);height:4px}
+  .toprow{display:flex;gap:8px;flex-wrap:wrap}
+  .mini{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:6px;cursor:pointer;font-size:12px;padding:5px 9px}
+  .mini:hover{color:var(--txt);border-color:#3a3f54}
+  .mini.active{border-color:var(--accent);color:var(--accent)}
+  .compass{width:120px;height:120px;margin:6px auto;position:relative;border-radius:50%;background:radial-gradient(circle at 50% 40%,#262a3a,#12141d);border:1px solid var(--line);cursor:crosshair}
+  .compass .ring{position:absolute;inset:8px;border-radius:50%;border:1px dashed #3a3f54}
+  .compass .handle{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent);transform:translate(-50%,-50%);pointer-events:none}
+  .compass .center{position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:50%;background:#555;transform:translate(-50%,-50%)}
+  .small{font-size:11px;color:var(--muted);line-height:1.5}
+  .hr{height:1px;background:var(--line);margin:10px 0;border:0}
+  .sw{display:flex;align-items:center;gap:8px}
+  input[type=color]{width:34px;height:26px;border:1px solid var(--line);background:none;border-radius:6px;padding:0;cursor:pointer}
+  ::-webkit-scrollbar{width:10px}::-webkit-scrollbar-thumb{background:#2a2e3d;border-radius:6px}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three/three.module.js",
+  "three/addons/": "./vendor/three/addons/"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <div id="toolbar">
+      <h1>◐ Relight Studio · 3D</h1>
+      <span class="tag">real shadows · offline · GPU</span>
+      <div class="spacer"></div>
+      <a class="btn" href="/">2D Studio</a>
+      <button class="btn" id="btnOpen">Open Photo…</button>
+      <button class="btn" id="btnModel">Add 3D Model…</button>
+      <button class="btn" id="btnFront">Front View</button>
+      <button class="btn primary" id="btnSave">Save PNG</button>
+      <input type="file" id="file" accept="image/*" style="display:none"/>
+      <input type="file" id="fileModel" accept=".glb,.gltf,.obj" style="display:none"/>
+    </div>
+    <div id="canvasWrap">
+      <canvas id="c"></canvas>
+      <div id="drop">
+        <b>Drop a photo here</b>
+        <div class="small">It's turned into a 3D surface (depth-estimated) so it casts real shadows. The original pixels stay untouched — only the lighting changes.</div>
+      </div>
+      <div id="hud"></div>
+    </div>
+  </div>
+
+  <div id="panel"><div class="scroll">
+
+    <div class="section" id="secPresets">
+      <div class="head"><span class="ttl">Scene Presets</span><span class="chev">▾</span></div>
+      <div class="body"><div class="toprow" id="presets"></div>
+        <div class="small" style="margin-top:8px">One-click looks. Every control below stays fully adjustable afterward.</div>
+      </div>
+    </div>
+
+    <div class="section" id="secLight">
+      <div class="head"><span class="ttl">Light Direction</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="compass" id="compass"><div class="ring"></div><div class="center"></div><div class="handle"></div></div>
+        <div class="row"><label>Azimuth (around) <span class="val" id="azV">40°</span></label><input type="range" id="az" min="0" max="360" value="40"></div>
+        <div class="row"><label>Elevation (height) <span class="val" id="elV">35°</span></label><input type="range" id="el" min="-15" max="90" value="35"></div>
+        <div class="row"><label>Key intensity <span class="val" id="keyV">1.00</span></label><input type="range" id="key" min="0" max="4" step="0.01" value="1.5"></div>
+        <div class="row"><label>Color temperature <span class="val" id="tempV">5500K</span></label><input type="range" id="temp" min="2000" max="12000" step="100" value="5500"></div>
+        <div class="sw"><span class="small">Tint</span><input type="color" id="tint" value="#ffffff"></div>
+      </div>
+    </div>
+
+    <div class="section" id="secShadow">
+      <div class="head"><span class="ttl">Shadows & Softness</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="row"><label>Shadow control (strength) <span class="val" id="shStrV">0.85</span></label><input type="range" id="shStr" min="0" max="1" step="0.01" value="0.85"></div>
+        <div class="row"><label>Soft light (shadow softness) <span class="val" id="softV">3</span></label><input type="range" id="soft" min="0" max="25" step="0.5" value="3"></div>
+        <div class="small">Low softness = hard, sharp shadows (hard light). High = soft, diffused light.</div>
+      </div>
+    </div>
+
+    <div class="section" id="secWorld">
+      <div class="head"><span class="ttl">World & Ambient</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="row"><label>Night ⟷ Day <span class="val" id="dnV">0.65</span></label><input type="range" id="dn" min="0" max="1" step="0.01" value="0.65"></div>
+        <div class="row"><label>Ambient light <span class="val" id="ambV">0.70</span></label><input type="range" id="amb" min="0" max="2" step="0.01" value="0.7"></div>
+        <div class="row"><label>Exposure <span class="val" id="expV">1.00</span></label><input type="range" id="exp" min="0.3" max="2" step="0.01" value="1.0"></div>
+      </div>
+    </div>
+
+    <div class="section" id="secCam">
+      <div class="head"><span class="ttl">Camera</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="row"><label>Focal length <span class="val" id="focV">50mm</span></label><input type="range" id="foc" min="16" max="200" step="1" value="50"></div>
+        <div class="small">Front view keeps the original composition. Drag in the viewport to orbit; click <b>Front View</b> to snap back.</div>
+      </div>
+    </div>
+
+    <div class="section" id="secNoir">
+      <div class="head"><span class="ttl">Film Noir</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="row"><label class="sw" style="cursor:pointer"><input type="checkbox" id="noir"> <span>Enable film noir look</span></label></div>
+        <div class="row"><label>B&amp;W amount <span class="val" id="noirAmtV">1.00</span></label><input type="range" id="noirAmt" min="0" max="1" step="0.01" value="1.0"></div>
+        <div class="row"><label>Contrast <span class="val" id="noirConV">1.30</span></label><input type="range" id="noirCon" min="0.8" max="2" step="0.01" value="1.3"></div>
+        <div class="row"><label>Vignette <span class="val" id="vigV">0.55</span></label><input type="range" id="vig" min="0" max="1" step="0.01" value="0.55"></div>
+        <div class="row"><label>Film grain <span class="val" id="grnV">0.07</span></label><input type="range" id="grn" min="0" max="0.25" step="0.005" value="0.07"></div>
+      </div>
+    </div>
+
+    <div class="section" id="secModel">
+      <div class="head"><span class="ttl">3D Model</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="toprow">
+          <button class="mini" id="mMove">Move</button>
+          <button class="mini" id="mRot">Rotate</button>
+          <button class="mini" id="mScale">Scale</button>
+          <button class="mini" id="mDel">Remove</button>
+        </div>
+        <div class="row"><label>Model scale <span class="val" id="mScaleV">1.00</span></label><input type="range" id="mScaleR" min="0.05" max="5" step="0.01" value="1.0"></div>
+        <div class="small">Add a .glb / .gltf / .obj model. It casts and receives real shadows with the photo. Use the gizmo to place it in the scene.</div>
+      </div>
+    </div>
+
+    <div class="section collapsed" id="secAdv">
+      <div class="head"><span class="ttl">Advanced</span><span class="chev">▾</span></div>
+      <div class="body">
+        <div class="row"><label>3D relief depth <span class="val" id="reliefV">0.35</span></label><input type="range" id="relief" min="0" max="1.2" step="0.01" value="0.35"></div>
+        <div class="row"><label>Surface roughness <span class="val" id="roughV">0.85</span></label><input type="range" id="rough" min="0.05" max="1" step="0.01" value="0.85"></div>
+        <div class="row"><label>Bloom (glow) <span class="val" id="bloomV">0.10</span></label><input type="range" id="bloom" min="0" max="1.5" step="0.01" value="0.1"></div>
+        <div class="row"><label class="sw" style="cursor:pointer"><input type="checkbox" id="ground" checked> <span>Shadow-catcher floor</span></label></div>
+      </div>
+    </div>
+
+  </div></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// ---------- helpers ----------
+function kelvinToRGB(k){
+  const t=k/100; let r,g,b;
+  r = t<=66?255:329.7*Math.pow(t-60,-0.1332);
+  g = t<=66?99.47*Math.log(t)-161.12:288.12*Math.pow(t-60,-0.0755);
+  b = t>=66?255:(t<=19?0:138.52*Math.log(t-10)-305.04);
+  const cl=v=>Math.max(0,Math.min(255,v))/255;
+  return new THREE.Color(cl(r),cl(g),cl(b));
+}
+const $=id=>document.getElementById(id);
+const lerp=THREE.MathUtils.lerp;
+
+// ---------- renderer / scene / camera ----------
+const canvas=$('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.VSMShadowMap;  // soft shadows that respect shadow.radius
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.0;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x0b0d12);
+
+const camera=new THREE.PerspectiveCamera(40,16/9,0.05,200);
+camera.position.set(0,0,5);
+
+const orbit=new OrbitControls(camera,canvas);
+orbit.enableDamping=true; orbit.dampingFactor=0.08; orbit.target.set(0,0,0);
+
+// ---------- lights ----------
+const hemi=new THREE.HemisphereLight(0xbfd6ff,0x202028,0.7);
+scene.add(hemi);
+const ambient=new THREE.AmbientLight(0xffffff,0.15); scene.add(ambient);
+
+const key=new THREE.DirectionalLight(0xffffff,1.5);
+key.castShadow=true;
+key.shadow.mapSize.set(2048,2048);
+key.shadow.bias=-0.0008; key.shadow.normalBias=0.02;
+key.shadow.radius=3; key.shadow.blurSamples=25;
+key.shadow.camera.near=0.1; key.shadow.camera.far=30;
+const sc=key.shadow.camera; sc.left=-3;sc.right=3;sc.top=3;sc.bottom=-3; sc.updateProjectionMatrix();
+scene.add(key); scene.add(key.target);
+
+// ---------- photo mesh (depth-displaced) ----------
+let planeMesh=null, planeMat=null, depthMesh=null;
+let planeW=3.55, planeH=2, photoTex=null, depthTex=null, normalTex=null;
+let ground=null;
+
+// Build a tangent-space normal map from a depth/height image so directional
+// light reveals the 3D form of the subject (not just flat shading).
+function depthToNormalMap(depthImg, strength){
+  const w=depthImg.width||depthImg.naturalWidth, h=depthImg.height||depthImg.naturalHeight;
+  const sc=Math.min(1024,w)/w; const W=Math.max(2,Math.round(w*sc)), H=Math.max(2,Math.round(h*sc));
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const cx=cv.getContext('2d'); cx.drawImage(depthImg,0,0,W,H);
+  const src=cx.getImageData(0,0,W,H).data;
+  const out=cx.createImageData(W,H); const o=out.data;
+  const at=(x,y)=>{x=Math.max(0,Math.min(W-1,x));y=Math.max(0,Math.min(H-1,y));return src[(y*W+x)*4]/255;};
+  const s=strength;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const dx=(at(x-1,y)-at(x+1,y))*s;
+    const dy=(at(x,y-1)-at(x,y+1))*s;
+    let nx=dx, ny=dy, nz=1.0;
+    const len=Math.hypot(nx,ny,nz)||1; nx/=len; ny/=len; nz/=len;
+    const i=(y*W+x)*4;
+    o[i]=(nx*0.5+0.5)*255; o[i+1]=(ny*0.5+0.5)*255; o[i+2]=(nz*0.5+0.5)*255; o[i+3]=255;
+  }
+  cx.putImageData(out,0,0);
+  return cv;
+}
+
+function buildGround(){
+  if(ground){scene.remove(ground); ground.geometry.dispose(); ground.material.dispose();}
+  const g=new THREE.PlaneGeometry(40,40);
+  const m=new THREE.ShadowMaterial({opacity:0.55});
+  ground=new THREE.Mesh(g,m);
+  ground.rotation.x=-Math.PI/2;
+  ground.position.y=-planeH/2-0.02;
+  ground.receiveShadow=true;
+  ground.visible=$('ground').checked;
+  scene.add(ground);
+}
+
+function makePlane(){
+  if(planeMesh){ scene.remove(planeMesh); planeMesh.geometry.dispose(); }
+  const segX=Math.min(360,Math.round(180*(planeW/planeH))), segY=180;
+  const geo=new THREE.PlaneGeometry(planeW,planeH,segX,segY);
+  planeMat=new THREE.MeshStandardMaterial({
+    map:photoTex, displacementMap:depthTex||null,
+    displacementScale:depthTex?parseFloat($('relief').value):0,
+    normalMap:normalTex||null, normalScale:new THREE.Vector2(1.6,1.6),
+    roughness:parseFloat($('rough').value), metalness:0.0
+  });
+  planeMesh=new THREE.Mesh(geo,planeMat);
+  planeMesh.castShadow=true; planeMesh.receiveShadow=true;
+  // custom depth material so SHADOWS follow the displaced geometry (self-shadowing)
+  planeMesh.customDepthMaterial=new THREE.MeshDepthMaterial({
+    depthPacking:THREE.RGBADepthPacking,
+    displacementMap:depthTex||null,
+    displacementScale:depthTex?parseFloat($('relief').value):0
+  });
+  scene.add(planeMesh);
+  buildGround();
+}
+
+// ---------- post processing ----------
+const NoirShader={
+  uniforms:{tDiffuse:{value:null},amount:{value:1.0},contrast:{value:1.3},vignette:{value:0.55},grain:{value:0.07},time:{value:0},on:{value:0}},
+  vertexShader:`varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform float amount,contrast,vignette,grain,time,on; varying vec2 vUv;
+    float rand(vec2 c){return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453);}
+    void main(){
+      vec4 c=texture2D(tDiffuse,vUv);
+      if(on<0.5){ gl_FragColor=c; return; }
+      float l=dot(c.rgb,vec3(0.299,0.587,0.114));
+      vec3 col=mix(c.rgb,vec3(l),amount);
+      col=(col-0.5)*contrast+0.5;
+      float d=distance(vUv,vec2(0.5));
+      col*=1.0-vignette*smoothstep(0.25,0.85,d);
+      col+=(rand(vUv+fract(time))-0.5)*grain;
+      gl_FragColor=vec4(clamp(col,0.0,1.0),c.a);
+    }`
+};
+const composer=new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene,camera));
+const bloomPass=new UnrealBloomPass(new THREE.Vector2(1,1),0.1,0.5,0.85);
+composer.addPass(bloomPass);
+const noirPass=new ShaderPass(NoirShader);
+composer.addPass(noirPass);
+composer.addPass(new OutputPass());
+
+// ---------- sizing ----------
+function resize(){
+  const w=canvas.clientWidth,h=canvas.clientHeight;
+  renderer.setSize(w,h,false);
+  composer.setSize(w,h);
+  bloomPass.setSize(w,h);
+  camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(canvas);
+
+// ---------- controls logic ----------
+function setFocal(mm){
+  const fovV=2*Math.atan(24/(2*mm))*180/Math.PI;
+  camera.fov=fovV;
+  const dist=(planeH/2+0.2)/Math.tan(fovV*Math.PI/360);
+  const dir=camera.position.clone().sub(orbit.target);
+  if(dir.lengthSq()<1e-6) dir.set(0,0,1);
+  dir.normalize().multiplyScalar(dist);
+  camera.position.copy(orbit.target).add(dir);
+  camera.updateProjectionMatrix();
+}
+function frontView(){ orbit.target.set(0,0,0); camera.position.set(0,0,1); setFocal(parseFloat($('foc').value)); }
+
+function updateLightDir(){
+  const az=parseFloat($('az').value)*Math.PI/180, el=parseFloat($('el').value)*Math.PI/180;
+  const R=8;
+  key.position.set(Math.cos(el)*Math.sin(az)*R, Math.sin(el)*R, Math.cos(el)*Math.cos(az)*R);
+  key.target.position.set(0,0,0);
+  placeHandle();
+}
+function applyWorld(){
+  const dn=parseFloat($('dn').value), ambMul=parseFloat($('amb').value);
+  scene.background.copy(new THREE.Color(0x05070d)).lerp(new THREE.Color(0x95b8e6),dn);
+  hemi.color.copy(new THREE.Color(0x24304a)).lerp(new THREE.Color(0xbfd6ff),dn);
+  hemi.groundColor.set(0x14161d);
+  hemi.intensity=lerp(0.06,0.75,dn)*ambMul;
+  ambient.intensity=lerp(0.02,0.18,dn)*ambMul;
+  // key brightness baseline scales moonlight->daylight, multiplied by user key
+  const base=lerp(0.7,1.6,dn);
+  key.intensity=base*parseFloat($('key').value);
+}
+function applyKeyColor(){
+  const k=kelvinToRGB(parseFloat($('temp').value));
+  const tint=new THREE.Color($('tint').value);
+  key.color.copy(k).multiply(tint);
+}
+function applyShadows(){
+  key.shadow.intensity=parseFloat($('shStr').value);
+  key.shadow.radius=parseFloat($('soft').value);
+  key.shadow.needsUpdate=true;
+}
+function applyRelief(){
+  if(!planeMat) return;
+  const v=depthTex?parseFloat($('relief').value):0;
+  planeMat.displacementScale=v;
+  if(planeMesh.customDepthMaterial) planeMesh.customDepthMaterial.displacementScale=v;
+  planeMat.roughness=parseFloat($('rough').value);
+}
+
+// compass
+const compass=$('compass');
+function placeHandle(){
+  const az=parseFloat($('az').value)*Math.PI/180, el=parseFloat($('el').value);
+  const dist=(1-Math.max(0,el)/90), R=52*dist;
+  $('compass').querySelector('.handle').style.left=(60+Math.sin(az)*R)+'px';
+  $('compass').querySelector('.handle').style.top=(60-Math.cos(az)*R)+'px';
+}
+function compassFromEvent(ev){
+  const r=compass.getBoundingClientRect(), cx=r.left+r.width/2, cy=r.top+r.height/2;
+  const x=(ev.touches?ev.touches[0].clientX:ev.clientX)-cx;
+  const y=(ev.touches?ev.touches[0].clientY:ev.clientY)-cy;
+  let ang=Math.atan2(x,-y)*180/Math.PI; if(ang<0)ang+=360;
+  $('az').value=Math.round(ang); $('azV').textContent=Math.round(ang)+'°';
+  const dist=Math.min(1,Math.sqrt(x*x+y*y)/(r.width/2));
+  $('el').value=Math.round((1-dist)*90); $('elV').textContent=$('el').value+'°';
+  updateLightDir();
+}
+let cdrag=false;
+compass.addEventListener('mousedown',e=>{cdrag=true;compassFromEvent(e);});
+window.addEventListener('mousemove',e=>{if(cdrag)compassFromEvent(e);});
+window.addEventListener('mouseup',()=>cdrag=false);
+
+// bind sliders -> labels + actions
+function bind(id,vid,fmt,fn){const el=$(id);const v=$(vid);const run=()=>{if(v)v.textContent=fmt(parseFloat(el.value));fn&&fn();};el.addEventListener('input',run);run();}
+bind('az','azV',v=>v+'°',updateLightDir);
+bind('el','elV',v=>v+'°',updateLightDir);
+bind('key','keyV',v=>v.toFixed(2),applyWorld);
+bind('temp','tempV',v=>v+'K',applyKeyColor);
+bind('shStr','shStrV',v=>v.toFixed(2),applyShadows);
+bind('soft','softV',v=>v.toFixed(1),applyShadows);
+bind('dn','dnV',v=>v.toFixed(2),applyWorld);
+bind('amb','ambV',v=>v.toFixed(2),applyWorld);
+bind('exp','expV',v=>v.toFixed(2),()=>renderer.toneMappingExposure=parseFloat($('exp').value));
+bind('foc','focV',v=>v+'mm',()=>setFocal(parseFloat($('foc').value)));
+bind('relief','reliefV',v=>v.toFixed(2),applyRelief);
+bind('rough','roughV',v=>v.toFixed(2),applyRelief);
+bind('noirAmt','noirAmtV',v=>v.toFixed(2),()=>noirPass.uniforms.amount.value=parseFloat($('noirAmt').value));
+bind('noirCon','noirConV',v=>v.toFixed(2),()=>noirPass.uniforms.contrast.value=parseFloat($('noirCon').value));
+bind('vig','vigV',v=>v.toFixed(2),()=>noirPass.uniforms.vignette.value=parseFloat($('vig').value));
+bind('grn','grnV',v=>v.toFixed(3),()=>noirPass.uniforms.grain.value=parseFloat($('grn').value));
+bind('bloom','bloomV',v=>v.toFixed(2),()=>bloomPass.strength=parseFloat($('bloom').value));
+$('tint').addEventListener('input',applyKeyColor);
+$('noir').addEventListener('change',()=>noirPass.uniforms.on.value=$('noir').checked?1:0);
+$('ground').addEventListener('change',()=>{if(ground)ground.visible=$('ground').checked;});
+
+// ---------- presets ----------
+const PRESETS={
+  'Day':{dn:1,amb:0.9,key:1.4,temp:5800,soft:6,shStr:0.6,exp:1.0,noir:false},
+  'Night':{dn:0.08,amb:0.5,key:1.2,temp:8000,soft:4,shStr:0.9,exp:1.05,noir:false},
+  'Hard light':{dn:0.5,amb:0.35,key:2.4,temp:5200,soft:0.5,shStr:1.0,exp:1.0,noir:false},
+  'Warm light':{dn:0.6,amb:0.7,key:1.6,temp:3200,soft:7,shStr:0.7,exp:1.0,noir:false},
+  'Diffused':{dn:0.7,amb:1.1,key:0.9,temp:6000,soft:22,shStr:0.4,exp:1.0,noir:false},
+  'Film Noir':{dn:0.25,amb:0.25,key:2.6,temp:5000,soft:1.5,shStr:1.0,exp:1.0,noir:true}
+};
+const presetsEl=$('presets');
+Object.keys(PRESETS).forEach(name=>{
+  const b=document.createElement('button'); b.className='mini'; b.textContent=name;
+  b.onclick=()=>applyPreset(name); presetsEl.appendChild(b);
+});
+function applyPreset(name){
+  const p=PRESETS[name];
+  const set=(id,val)=>{const el=$(id);el.value=val;el.dispatchEvent(new Event('input'));};
+  set('dn',p.dn); set('amb',p.amb); set('key',p.key); set('temp',p.temp);
+  set('soft',p.soft); set('shStr',p.shStr); set('exp',p.exp);
+  $('noir').checked=p.noir; noirPass.uniforms.on.value=p.noir?1:0;
+  [...presetsEl.children].forEach(c=>c.classList.toggle('active',c.textContent===name));
+}
+
+// ---------- photo load + depth ----------
+const hud=$('hud');
+function loadPhoto(file){
+  const img=new Image();
+  img.onload=async()=>{
+    planeH=2; planeW=2*(img.naturalWidth/img.naturalHeight);
+    photoTex=new THREE.Texture(img); photoTex.colorSpace=THREE.SRGBColorSpace;
+    photoTex.anisotropy=renderer.capabilities.getMaxAnisotropy(); photoTex.needsUpdate=true;
+    depthTex=null;
+    makePlane(); frontView(); applyRelief();
+    $('drop').classList.add('hidden');
+    hud.textContent='Estimating depth…';
+    await fetchDepth(file,img);
+  };
+  img.src=URL.createObjectURL(file);
+}
+async function fetchDepth(file,img){
+  try{
+    const fd=new FormData(); fd.append('image',file);
+    const r=await fetch('/api/depth',{method:'POST',body:fd});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const blob=await r.blob();
+    const di=new Image(); di.onload=()=>{ setDepth(di); hud.textContent='Depth: MiDaS (GPU) · '+img.naturalWidth+'×'+img.naturalHeight; };
+    di.src=URL.createObjectURL(blob);
+  }catch(e){
+    hud.textContent='Backend depth unavailable — using luminance fallback';
+    setDepth(luminanceDepth(img));
+  }
+}
+function setDepth(depthImg){
+  depthTex=new THREE.Texture(depthImg); depthTex.colorSpace=THREE.NoColorSpace; depthTex.needsUpdate=true;
+  const nmap=depthToNormalMap(depthImg, 3.0);
+  normalTex=new THREE.Texture(nmap); normalTex.colorSpace=THREE.NoColorSpace; normalTex.needsUpdate=true;
+  if(planeMat){
+    planeMat.displacementMap=depthTex;
+    planeMat.normalMap=normalTex;
+    planeMat.needsUpdate=true;
+    planeMesh.customDepthMaterial.displacementMap=depthTex; planeMesh.customDepthMaterial.needsUpdate=true;
+  }
+  applyRelief();
+}
+function luminanceDepth(img){
+  const c=document.createElement('canvas'); const s=Math.min(512,img.naturalWidth);
+  c.width=s; c.height=Math.round(s*img.naturalHeight/img.naturalWidth);
+  const x=c.getContext('2d'); x.filter='blur(2px) grayscale(1)'; x.drawImage(img,0,0,c.width,c.height);
+  return c;
+}
+
+// ---------- 3D model ----------
+let model=null;
+const tcontrol=new TransformControls(camera,canvas);
+tcontrol.addEventListener('dragging-changed',e=>orbit.enabled=!e.value);
+const tcHelper=tcontrol.getHelper?tcontrol.getHelper():tcontrol;
+scene.add(tcHelper);
+function clearModel(){ if(model){tcontrol.detach(); scene.remove(model); model=null;} }
+function addModel(file){
+  const url=URL.createObjectURL(file); const ext=file.name.split('.').pop().toLowerCase();
+  const onLoad=obj=>{
+    clearModel();
+    model=obj.scene||obj;
+    const box=new THREE.Box3().setFromObject(model);
+    const size=box.getSize(new THREE.Vector3()), center=box.getCenter(new THREE.Vector3());
+    const s=1.4/Math.max(size.x,size.y,size.z||1);
+    model.scale.setScalar(s);
+    model.userData.baseScale=s;
+    model.position.sub(center.multiplyScalar(s));
+    model.position.z+=0.4;
+    model.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;}});
+    scene.add(model); tcontrol.attach(model); tcontrol.setMode('translate');
+    $('mScaleR').value=1; $('mScaleV').textContent='1.00';
+    hud.textContent='Model added — use Move/Rotate/Scale to place it';
+  };
+  if(ext==='obj'){ new OBJLoader().load(url,onLoad,undefined,err=>alert('OBJ load failed: '+err)); }
+  else { new GLTFLoader().load(url,onLoad,undefined,err=>alert('Model load failed: '+err)); }
+}
+$('mMove').onclick=()=>{if(model)tcontrol.setMode('translate');setActiveMode('mMove');};
+$('mRot').onclick=()=>{if(model)tcontrol.setMode('rotate');setActiveMode('mRot');};
+$('mScale').onclick=()=>{if(model)tcontrol.setMode('scale');setActiveMode('mScale');};
+$('mDel').onclick=()=>{clearModel();setActiveMode(null);};
+function setActiveMode(id){['mMove','mRot','mScale'].forEach(m=>$(m).classList.toggle('active',m===id));}
+$('mScaleR').addEventListener('input',()=>{const v=parseFloat($('mScaleR').value);$('mScaleV').textContent=v.toFixed(2);if(model)model.scale.setScalar(v*(model.userData.baseScale||1));});
+
+// ---------- toolbar ----------
+$('btnOpen').onclick=()=>$('file').click();
+$('btnModel').onclick=()=>$('fileModel').click();
+$('file').onchange=e=>{const f=e.target.files[0];if(f)loadPhoto(f);};
+$('fileModel').onchange=e=>{const f=e.target.files[0];if(f)addModel(f);};
+$('btnFront').onclick=frontView;
+const wrap=$('canvasWrap');
+['dragenter','dragover'].forEach(ev=>wrap.addEventListener(ev,e=>e.preventDefault()));
+wrap.addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f&&f.type.startsWith('image'))loadPhoto(f);});
+$('btnSave').onclick=()=>{
+  composer.render();
+  canvas.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='relit-3d.png';a.click();},'image/png');
+};
+
+// section collapse
+document.querySelectorAll('.section .head').forEach(h=>h.addEventListener('click',e=>{
+  if(e.target.closest('button')||e.target.closest('input'))return; h.parentElement.classList.toggle('collapsed');
+}));
+
+// ---------- init ----------
+updateLightDir(); applyWorld(); applyKeyColor(); applyShadows();
+noirPass.uniforms.on.value=0; bloomPass.strength=0.1;
+resize(); frontView();
+
+const t0=performance.now();
+function animate(){
+  requestAnimationFrame(animate);
+  noirPass.uniforms.time.value=(performance.now()-t0)/1000;
+  orbit.update();
+  composer.render();
+}
+animate();
+</script>
+</body>
+</html>

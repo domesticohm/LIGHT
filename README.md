@@ -11,6 +11,14 @@ A local **virtual photo-lighting studio** with two engines:
    prompt + light direction, while preserving your subject. Runs **locally on your GPU**,
    or **online via fal.ai** for the highest quality on machines without a strong GPU.
 
+3. **🧊 3D Studio — real cast shadows (Unreal-style control)** — the photo is turned
+   into a real 3D surface via depth estimation (MiDaS, on your GPU) and lit with a true
+   shadow-mapping light rig in **Three.js**. The **original photo pixels are never
+   altered** — only the lighting changes, so composition and design are preserved exactly.
+   Controls: light direction, shadow strength, soft-light (shadow softness), night/day,
+   ambient, color temperature, focal length, a **Film Noir** look, and you can **import a
+   3D model** (.glb/.gltf/.obj) that casts/receives shadows with the photo.
+
 Everything can run **100% offline** (after the one-time model download).
 
 ---

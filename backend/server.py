@@ -61,6 +61,35 @@ def api_warmup():
     return eng.status()
 
 
+def _depth():
+    import depth_engine as d
+    return d
+
+
+@app.post("/api/depth")
+def api_depth(image: UploadFile = File(...)):
+    """Estimate a depth map (MiDaS) used by the 3D studio for real geometry."""
+    try:
+        pil = Image.open(io.BytesIO(image.file.read()))
+    except Exception:
+        raise HTTPException(400, "Could not read uploaded image")
+    with _infer_lock:
+        try:
+            depth = _depth().estimate(pil)
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(500, f"Depth estimation failed: {e!r}")
+    return _img_to_png_response(depth)
+
+
+@app.get("/api/depth_status")
+def api_depth_status():
+    try:
+        return _depth().status()
+    except Exception as e:
+        return {"loaded": False, "error": repr(e)}
+
+
 def _img_to_png_response(img: Image.Image):
     buf = io.BytesIO()
     img.save(buf, format="PNG")
