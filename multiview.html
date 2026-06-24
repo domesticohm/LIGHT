@@ -78,8 +78,9 @@
     <div class="section" id="secStat">
       <div class="head"><span class="ttl">Pipeline</span><span class="chev">▾</span></div>
       <div class="body"><div class="small" id="stat">1. Add model + 3 photos · 2. Analyze &amp; Align · 3. Relight</div>
-        <div class="row"><label class="sw" style="cursor:pointer"><input type="checkbox" id="projOn" checked> <span>Projected photo texture</span></label></div>
-        <div class="small" id="depthSrc">Geometry: your 3D model · Texture: projected from aligned photos</div>
+        <div class="row"><label class="sw" style="cursor:pointer"><input type="checkbox" id="cutout" checked> <span>Cut out background</span></label></div>
+        <div class="row"><label>3D relief depth <span class="val" id="reliefV">0.35</span></label><input type="range" id="relief" min="0" max="1.0" step="0.01" value="0.35"></div>
+        <div class="small" id="depthSrc">Geometry: depth analyzed from your 3D model. The photo is shown in 3D — the model is not.</div>
       </div>
     </div>
 
@@ -162,40 +163,24 @@ function buildGround(){
 }
 buildGround();
 
-// ---------- projective-texture material ----------
-const projUniforms={
-  uProjOn:{value:1.0}, uProjCount:{value:0},
-  uProjMat:{value:[new THREE.Matrix4(),new THREE.Matrix4(),new THREE.Matrix4()]},
-  uProjPos:{value:[new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()]},
-  uProjTex0:{value:null}, uProjTex1:{value:null}, uProjTex2:{value:null}, uProjFlip:{value:1.0}
-};
-function makeModelMaterial(){
-  const m=new THREE.MeshStandardMaterial({color:0xb8b8b8, roughness:0.7, metalness:0.0});
-  m.onBeforeCompile=(sh)=>{
-    Object.assign(sh.uniforms, projUniforms);
-    // capture LOCAL position + normal so projected texture stays locked to the model
-    sh.vertexShader='varying vec3 vWPos; varying vec3 vWNrm;\n'+sh.vertexShader
-      .replace('#include <beginnormal_vertex>','#include <beginnormal_vertex>\n vWNrm=objectNormal;')
-      .replace('#include <begin_vertex>','#include <begin_vertex>\n vWPos=transformed;');
-    sh.fragmentShader='varying vec3 vWPos; varying vec3 vWNrm;\nuniform float uProjOn,uProjFlip; uniform int uProjCount;\nuniform mat4 uProjMat[3]; uniform vec3 uProjPos[3]; uniform sampler2D uProjTex0,uProjTex1,uProjTex2;\n'+sh.fragmentShader;
-    const inject=`#include <map_fragment>
-      if(uProjOn>0.5 && uProjCount>0){
-        vec3 nrm=normalize(vWNrm); vec3 acc=vec3(0.0); float wsum=0.0;
-        for(int i=0;i<3;i++){ if(i>=uProjCount) break;
-          vec4 pc=uProjMat[i]*vec4(vWPos,1.0);
-          if(pc.w>0.0){ vec2 uv=pc.xy/pc.w*0.5+0.5; uv.y=mix(uv.y,1.0-uv.y,step(0.5,uProjFlip));
-            if(uv.x>0.002&&uv.x<0.998&&uv.y>0.002&&uv.y<0.998){
-              float f=dot(nrm, normalize(uProjPos[i]-vWPos));
-              if(f>0.04){ vec3 c; if(i==0)c=texture2D(uProjTex0,uv).rgb; else if(i==1)c=texture2D(uProjTex1,uv).rgb; else c=texture2D(uProjTex2,uv).rgb;
-                float w=f*f; acc+=c*w; wsum+=w; } } } }
-        if(wsum>0.0){ diffuseColor.rgb=acc/wsum; } else { diffuseColor.rgb=vec3(0.45); }
-      }`;
-    sh.fragmentShader=sh.fragmentShader.replace('#include <map_fragment>', inject);
-  };
-  m.customProgramCacheKey=()=>'projmat';
-  return m;
+// ---------- model = depth/shape analyzer only (ghost while aligning, hidden after) ----------
+const modelMat=new THREE.MeshStandardMaterial({color:0x88bbee,roughness:0.6,metalness:0,transparent:true,opacity:0.45,depthWrite:false,depthTest:false,side:THREE.DoubleSide});
+// linear view-space depth shader (near = white = closer), used to bake the model's depth per view
+const bakeDepthMat=new THREE.ShaderMaterial({uniforms:{uNear:{value:0},uFar:{value:1}},
+  vertexShader:`varying float vZ; void main(){vec4 mv=modelViewMatrix*vec4(position,1.0);vZ=-mv.z;gl_Position=projectionMatrix*mv;}`,
+  fragmentShader:`varying float vZ;uniform float uNear,uFar;void main(){float d=clamp((uFar-vZ)/(uFar-uNear),0.0,1.0);gl_FragColor=vec4(vec3(d),1.0);}`});
+// build a tangent-space normal map from a depth/height image (reveals 3D form under light)
+function depthToNormalMap(depthImg,strength){
+  const w=depthImg.width||depthImg.naturalWidth,h=depthImg.height||depthImg.naturalHeight;
+  const sc=Math.min(1024,w)/w,W=Math.max(2,Math.round(w*sc)),H=Math.max(2,Math.round(h*sc));
+  const cv=document.createElement('canvas');cv.width=W;cv.height=H;const cx=cv.getContext('2d');cx.drawImage(depthImg,0,0,W,H);
+  const src=cx.getImageData(0,0,W,H).data,out=cx.createImageData(W,H),o=out.data;
+  const at=(x,y)=>{x=Math.max(0,Math.min(W-1,x));y=Math.max(0,Math.min(H-1,y));return src[(y*W+x)*4]/255;};
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const dx=(at(x-1,y)-at(x+1,y))*strength,dy=(at(x,y-1)-at(x,y+1))*strength;
+    let nx=dx,ny=dy,nz=1.0;const len=Math.hypot(nx,ny,nz)||1;nx/=len;ny/=len;nz/=len;const i=(y*W+x)*4;
+    o[i]=(nx*0.5+0.5)*255;o[i+1]=(ny*0.5+0.5)*255;o[i+2]=(nz*0.5+0.5)*255;o[i+3]=255;}
+  cx.putImageData(out,0,0);return cv;
 }
-const modelMat=makeModelMaterial();
 
 // ---------- post ----------
 const NoirShader={uniforms:{tDiffuse:{value:null},amount:{value:1.0},contrast:{value:1.3},vignette:{value:0.55},grain:{value:0.06},time:{value:0},on:{value:0}},
@@ -217,10 +202,10 @@ new ResizeObserver(resize).observe(canvas);
 // ---------- model + views ----------
 let model=null, canonicalInv=new THREE.Matrix4(), canonicalLocal=new THREE.Matrix4();
 const views=[null,null,null];   // {file, tex, img, aspect, sol}
-let activeSlot=0;
+let activeSlot=0, activeView=-1;
 const hud=$('hud');
 
-function setModelMaterial(m){ m.traverse(n=>{ if(n.isMesh){ n.material=modelMat; n.castShadow=true; n.receiveShadow=true; } }); }
+function setModelMaterial(m){ m.traverse(n=>{ if(n.isMesh){ n.material=modelMat; n.castShadow=false; n.receiveShadow=false; } }); }
 function loadModel(file){
   const url=URL.createObjectURL(file), ext=file.name.split('.').pop().toLowerCase();
   const onLoad=obj=>{
@@ -242,9 +227,10 @@ function thumbs(){
   for(let i=0;i<3;i++){
     const d=document.createElement('div'); d.className='vthumb'+(views[i]?'':' empty');
     if(views[i]){ d.style.backgroundImage=`url(${views[i].url})`; const lab=document.createElement('div'); lab.className='lab'; lab.textContent='View '+(i+1); d.appendChild(lab);
-      if(views[i].sol){const q=document.createElement('div');q.className='iou';q.textContent='IoU '+(views[i].sol.iou*100|0)+'%';d.appendChild(q);} }
+      if(views[i].sol){const q=document.createElement('div');q.className='iou';q.textContent='IoU '+(views[i].sol.iou*100|0)+'%';d.appendChild(q);}
+      if(activeView===i) d.style.outline='2px solid var(--accent)'; }
     else d.textContent='+ View '+(i+1);
-    d.onclick=()=>{ activeSlot=i; $('fView').click(); };
+    d.onclick=()=>{ if(views[i]&&views[i].sol&&views[i].sol.depth){ showView(i); } else { activeSlot=i; $('fView').click(); } };
     el.appendChild(d);
   }
 }
@@ -296,6 +282,57 @@ function renderSil(rt,rcam,W,H){
 function isChild(n){let p=n;while(p){if(p===model)return true;p=p.parent;}return false;}
 function iou(a,b){let inter=0,uni=0;for(let p=0;p<a.length;p++){const x=a[p],y=b[p];if(x|y)uni++;if(x&y)inter++;}return uni?inter/uni:0;}
 
+// bake the model's depth (as seen from this view's camera) -> grayscale canvas (near=white)
+function bakeDepthFromCamera(rcam,W,H){
+  const rt=new THREE.WebGLRenderTarget(W,H,{depthBuffer:true});
+  const box=new THREE.Box3().setFromObject(model); let zmin=Infinity,zmax=-Infinity;
+  [[box.min.x,box.min.y,box.min.z],[box.min.x,box.min.y,box.max.z],[box.min.x,box.max.y,box.min.z],[box.min.x,box.max.y,box.max.z],
+   [box.max.x,box.min.y,box.min.z],[box.max.x,box.min.y,box.max.z],[box.max.x,box.max.y,box.min.z],[box.max.x,box.max.y,box.max.z]]
+   .forEach(c=>{const z=-(new THREE.Vector3(c[0],c[1],c[2]).applyMatrix4(rcam.matrixWorldInverse).z); if(z<zmin)zmin=z; if(z>zmax)zmax=z;});
+  if(!isFinite(zmin)||zmax<=zmin){zmin=0;zmax=1;}
+  bakeDepthMat.uniforms.uNear.value=zmin; bakeDepthMat.uniforms.uFar.value=zmax;
+  const hidden=[]; scene.traverse(n=>{if(n.isMesh&&!isChild(n)){hidden.push([n,n.visible]);n.visible=false;}});
+  const wv=model.visible; model.visible=true;
+  model.traverse(n=>{if(n.isMesh){n.userData._m=n.material;n.material=bakeDepthMat;}});
+  const prevBg=scene.background; scene.background=null;
+  const pt=renderer.getRenderTarget(); renderer.setRenderTarget(rt); renderer.setClearColor(0x000000,1); renderer.clear();
+  renderer.render(scene,rcam);
+  const buf=new Uint8Array(W*H*4); renderer.readRenderTargetPixels(rt,0,0,W,H,buf);
+  renderer.setRenderTarget(pt); scene.background=prevBg;
+  model.traverse(n=>{if(n.isMesh)n.material=n.userData._m;}); hidden.forEach(([n,vv])=>n.visible=vv); model.visible=wv;
+  const cv=document.createElement('canvas');cv.width=W;cv.height=H;const ctx=cv.getContext('2d');const id=ctx.createImageData(W,H);
+  for(let y=0;y<H;y++){const sy=H-1-y;for(let x=0;x<W;x++){const s=(sy*W+x)*4,d=(y*W+x)*4;id.data[d]=buf[s];id.data[d+1]=buf[s+1];id.data[d+2]=buf[s+2];id.data[d+3]=255;}}
+  ctx.putImageData(id,0,0); rt.dispose(); return cv;
+}
+
+// ---------- display: the PHOTO shown in 3D using the model-derived depth ----------
+const planeGroup=new THREE.Group(); scene.add(planeGroup);
+let planeMesh=null, planeMat=null;
+function reliefVal(){return parseFloat($('relief').value);}
+function showView(i){
+  const v=views[i]; if(!v||!v.sol||!v.sol.depth) return;
+  activeView=i;
+  if(planeMesh){planeGroup.remove(planeMesh);planeMesh.geometry.dispose();}
+  const pW=v.sol.planeW,pH=v.sol.planeH;
+  const segX=Math.min(360,Math.round(200*(pW/pH)));
+  const geo=new THREE.PlaneGeometry(pW,pH,segX,200);
+  const depthTex=new THREE.Texture(v.sol.depth); depthTex.colorSpace=THREE.NoColorSpace; depthTex.needsUpdate=true;
+  const normalTex=new THREE.Texture(depthToNormalMap(v.sol.depth,3.0)); normalTex.colorSpace=THREE.NoColorSpace; normalTex.needsUpdate=true;
+  const cut=$('cutout').checked, rel=reliefVal();
+  planeMat=new THREE.MeshStandardMaterial({map:v.tex,displacementMap:depthTex,displacementScale:rel,
+    normalMap:normalTex,normalScale:new THREE.Vector2(1.6,1.6),roughness:0.85,metalness:0.0,
+    transparent:cut,alphaTest:cut?0.5:0.0,side:THREE.DoubleSide});
+  planeMesh=new THREE.Mesh(geo,planeMat); planeMesh.castShadow=true; planeMesh.receiveShadow=true;
+  planeMesh.customDepthMaterial=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking,
+    displacementMap:depthTex,displacementScale:rel,alphaMap:cut?v.tex:null,alphaTest:cut?0.5:0.0});
+  planeGroup.add(planeMesh);
+  if(ground) ground.position.y=-pH/2-0.04;
+  thumbs(); frontView();
+  hud.textContent=`View ${i+1} shown in 3D (depth from your model). Relight on the right.`;
+  $('depthSrc').textContent='Geometry: depth baked from your 3D model · background removed';
+}
+function applyRelief(){ if(!planeMat)return; const r=reliefVal(); planeMat.displacementScale=r; if(planeMesh.customDepthMaterial)planeMesh.customDepthMaterial.displacementScale=r; }
+
 async function alignView(i){
   const v=views[i]; if(!v||!model) return;
   const W=128, H=Math.max(8,Math.round(128*v.img.naturalHeight/v.img.naturalWidth));
@@ -329,14 +366,11 @@ async function alignView(i){
   // refine around best, now including roll
   const by=best.quat? new THREE.Euler().setFromQuaternion(best.quat):new THREE.Euler();
   for(let dy=-30;dy<=30;dy+=15)for(let dp=-30;dp<=30;dp+=15)for(let dr=-20;dr<=20;dr+=20){ await trySet(by.y+dy*R,by.x+dp*R,by.z+dr*R); await tick(); }
-  // apply best, compute projector matrices for the canonical model
+  // apply best pose, then BAKE the model's depth from this view's camera (the "shape analysis")
   model.position.copy(best.pos); model.quaternion.copy(best.quat); model.scale.copy(best.scale); model.updateMatrixWorld(true);
-  const Mi=model.matrixWorld.clone();
-  // local-space projector: maps model LOCAL coords -> this photo's clip space
-  const viewMat=new THREE.Matrix4().multiplyMatrices(rcam.matrixWorldInverse,Mi);
-  const projMat=new THREE.Matrix4().multiplyMatrices(rcam.projectionMatrix,viewMat);
-  const projPos=new THREE.Vector3().setFromMatrixPosition(viewMat.clone().invert());
-  v.sol={iou:best.iou, projMat, projPos};
+  const DW=1024, DH=Math.max(8,Math.round(1024*v.img.naturalHeight/v.img.naturalWidth));
+  const depth=bakeDepthFromCamera(rcam,DW,DH);
+  v.sol={iou:best.iou, depth, planeH:2*halfH, planeW:2*halfH*v.aspect, aspect:v.aspect};
   rt.dispose();
 }
 
@@ -345,18 +379,14 @@ async function alignAll(){
   const have=views.filter(Boolean); if(have.length===0){alert('Add at least one photo.');return;}
   $('bAlign').disabled=true;
   for(let i=0;i<3;i++){ if(views[i]) await alignView(i); }
-  // restore model to canonical for display
-  model.matrix.copy(canonicalLocal); model.matrix.decompose(model.position,model.quaternion,model.scale); model.updateMatrixWorld(true);
-  // upload projector uniforms
-  let count=0; const order=[0,1,2].filter(i=>views[i]&&views[i].sol&&views[i].sol.projMat);
-  order.forEach((idx,slot)=>{ projUniforms.uProjMat.value[slot].copy(views[idx].sol.projMat); projUniforms.uProjPos.value[slot].copy(views[idx].sol.projPos);
-    if(slot===0)projUniforms.uProjTex0.value=views[idx].tex; if(slot===1)projUniforms.uProjTex1.value=views[idx].tex; if(slot===2)projUniforms.uProjTex2.value=views[idx].tex; count++; });
-  projUniforms.uProjCount.value=count;
+  // model was only used to analyze depth/shape — hide it now
+  model.visible=false;
+  const order=[0,1,2].filter(i=>views[i]&&views[i].sol&&views[i].sol.depth);
   thumbs();
   const avg=order.length?Math.round(order.reduce((a,i)=>a+views[i].sol.iou,0)/order.length*100):0;
-  hud.textContent=`Aligned ${count} view(s). Mean silhouette IoU ${avg}%. Orbit to inspect; relight on the right.`;
   $('stat').textContent=`Aligned ✓ (IoU ${avg}%)`;
-  estimateLight();
+  if(order.length){ showView(order[0]); estimateLight(); hud.textContent=`Analyzed ${order.length} view(s) · mean IoU ${avg}%. Showing view ${order[0]+1} in 3D — click a thumbnail to switch, relight on the right.`; }
+  else hud.textContent='Alignment produced no usable depth — check the model matches the photos.';
   $('bAlign').disabled=false;
 }
 
@@ -405,7 +435,8 @@ bind('exp','expV',v=>v.toFixed(2),()=>renderer.toneMappingExposure=parseFloat($(
 bind('foc','focV',v=>v+'mm',()=>setFocal(parseFloat($('foc').value)));
 $('ground').addEventListener('change',()=>{if(ground)ground.visible=$('ground').checked;});
 $('noir').addEventListener('change',()=>noir.uniforms.on.value=$('noir').checked?1:0);
-$('projOn').addEventListener('change',()=>projUniforms.uProjOn.value=$('projOn').checked?1:0);
+$('cutout').addEventListener('change',()=>{ if(activeView>=0) showView(activeView); });
+bind('relief','reliefV',v=>v.toFixed(2),applyRelief);
 $('bEst').onclick=estimateLight;
 
 // toolbar
@@ -421,7 +452,7 @@ document.querySelectorAll('.section .head').forEach(h=>h.addEventListener('click
 // init
 updateLightDir();applyWorld();applyKeyColor();applyShadows();resize();frontView();
 const t0=performance.now();
-function animate(){requestAnimationFrame(animate);noir.uniforms.time.value=(performance.now()-t0)/1000;if(turn&&model){model.rotation.y+=0.01;}orbit.update();composer.render();}
+function animate(){requestAnimationFrame(animate);noir.uniforms.time.value=(performance.now()-t0)/1000;if(turn)planeGroup.rotation.y+=0.01;orbit.update();composer.render();}
 animate();
 window.__mv={get model(){return model;},views,alignAll,setSlot:i=>{activeSlot=i;}};
 </script>
